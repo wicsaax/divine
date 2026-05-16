@@ -46,15 +46,25 @@ jobs:
 
       # 如果配了 ANDROID_KEYSTORE_BASE64 等 secret, 解码出 keystore 并用 release 签名.
       # 没配则保持 debug 签名 (build.gradle.kts 里有回退).
+      # GitHub Actions 不允许在 step-level if 里直接读 secrets.*, 所以总是跑,
+      # 在 shell 里判空.
       - name: Decode keystore (if release signing configured)
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PWD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS:    ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PWD:      ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > $RUNNER_TEMP/divine-release.jks
-          echo "DIVINE_KEYSTORE_PATH=$RUNNER_TEMP/divine-release.jks" >> $GITHUB_ENV
-          echo "DIVINE_KEYSTORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
-          echo "DIVINE_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}" >> $GITHUB_ENV
-          echo "DIVINE_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}" >> $GITHUB_ENV
-          echo "✓ Release signing configured"
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/divine-release.jks"
+            echo "DIVINE_KEYSTORE_PATH=$RUNNER_TEMP/divine-release.jks" >> "$GITHUB_ENV"
+            echo "DIVINE_KEYSTORE_PASSWORD=$KEYSTORE_PWD" >> "$GITHUB_ENV"
+            echo "DIVINE_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "DIVINE_KEY_PASSWORD=$KEY_PWD" >> "$GITHUB_ENV"
+            echo "✓ Release signing configured"
+          else
+            echo "ℹ No keystore secret, falling back to debug signing"
+          fi
 
       - run: flutter pub get
       - run: flutter build apk --release
