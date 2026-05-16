@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:divine/core/bazi.dart';
 import 'package:divine/core/biblio.dart';
+import 'package:divine/core/ziwei.dart';
 import 'package:divine/core/generic.dart';
 import 'package:divine/core/iching.dart';
 import 'package:divine/core/lenormand.dart';
@@ -125,6 +126,40 @@ void main() {
       expect((pillars['year'] as String).length, 2);
       expect((pillars['day'] as String).length, 2);
       expect((r.extras['dayMaster'] as String).length, 1);
+    });
+
+    test('ziwei produces 12 palaces with 14 main stars', () {
+      final e = ZiWeiEngine();
+      final r = e.perform(variantKey: 'overall', inputs: {
+        'birthdate': '1990-06-15',
+        'birthtime': '14:30',
+        'gender': '男',
+      });
+      // 12 palace items
+      expect(r.items.length, 12);
+      final palaces = (r.extras['palaces'] as List).cast<Map>();
+      // 14 main stars total across all palaces
+      final allStars = palaces.expand((p) => (p['stars'] as List)).toList();
+      expect(allStars.length, 14);
+      // Each palace 干支 should be 2 chars
+      for (final p in palaces) {
+        expect((p['ganZhi'] as String).length, 2);
+      }
+      // Five-element bureau should be one of the 5
+      expect(
+        r.extras['bureau'],
+        isIn(['水二局', '木三局', '金四局', '土五局', '火六局']),
+      );
+    });
+
+    test('ziwei requires birth time', () {
+      final e = ZiWeiEngine();
+      expect(
+        () => e.perform(variantKey: 'overall', inputs: {
+          'birthdate': '1990-06-15',
+        }),
+        throwsArgumentError,
+      );
     });
 
     test('bazi handles unknown birth time', () {

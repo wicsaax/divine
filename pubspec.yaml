@@ -1,7 +1,7 @@
 name: divine
 description: A multi-tradition divination companion with AI-powered interpretation.
 publish_to: 'none'
-version: 0.3.0+4
+version: 0.4.0+5
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -17,6 +17,7 @@ dependencies:
   url_launcher: ^6.3.0
   lunar: ^1.7.6
   share_plus: ^10.1.2
+  sweph: ^2.10.0
 
 dev_dependencies:
   flutter_test:
@@ -25,3 +26,4 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # 注: sweph 包自己声明了 assets/ephe/, 不用在这里重复.

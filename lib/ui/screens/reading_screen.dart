@@ -135,11 +135,15 @@ class _ReadingScreenState extends State<ReadingScreen> {
 
     DivinationResult result;
     try {
-      result = widget.engine.perform(variantKey: _variantKey, inputs: inputs);
+      result = await Future.value(
+        widget.engine.perform(variantKey: _variantKey, inputs: inputs),
+      );
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
       return;
     }
+    if (!mounted) return;
 
     setState(() {
       _result = result;

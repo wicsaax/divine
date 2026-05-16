@@ -13,6 +13,7 @@ import 'core/plum.dart';
 import 'core/runes.dart';
 import 'core/tarot.dart';
 import 'core/yesno.dart';
+import 'core/ziwei.dart';
 import 'llm/config.dart';
 import 'ui/screens/home_screen.dart';
 
@@ -23,6 +24,7 @@ void _registerEngines() {
   DivinationRegistry.register(IChingEngine());
   DivinationRegistry.register(PlumBlossomEngine());
   DivinationRegistry.register(BaziEngine());
+  DivinationRegistry.register(ZiWeiEngine());
   DivinationRegistry.register(AstrologyEngine());
   DivinationRegistry.register(NumerologyEngine());
   DivinationRegistry.register(RunesEngine());

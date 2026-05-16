@@ -1,6 +1,7 @@
 // 占卜引擎抽象层. 每种占卜法 (塔罗/卢恩/六爻/...) 实现这个接口,
 // 然后在 main.dart 里 register 一次, UI 自动识别.
 
+import 'dart:async';
 import 'dart:convert';
 
 /// 单次占卜结果中的一个条目 (一张牌, 一个符文, 一个爻, 等).
@@ -149,9 +150,10 @@ abstract class DivinationEngine {
   /// 默认空, 表示无需结构化输入.
   List<InputField> get inputs => const [];
 
-  /// 执行一次占卜.
+  /// 执行一次占卜. async 是为了支持需要异步初始化的引擎 (例如占星的 sweph).
+  /// 多数引擎是纯函数, 直接同步 return.
   /// [variantKey] 是变体 key, [inputs] 是结构化字段值 (字符串).
-  DivinationResult perform({
+  FutureOr<DivinationResult> perform({
     required String variantKey,
     Map<String, String> inputs = const {},
   });
