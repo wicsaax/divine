@@ -14,11 +14,32 @@ const int _kHistoryLimit = 100;
 class ChatMessage {
   final String role; // 'user' | 'assistant' | 'system'
   final String content;
-  const ChatMessage({required this.role, required this.content});
+  /// 推理模型 (R1 等) 的思考链, 与 content 分开存. 仅 assistant 消息使用.
+  final String reasoning;
+  /// 这条消息是否被打断 (流式中途断网/后台被杀等).
+  /// true 时 UI 渲染"继续"按钮.
+  final bool interrupted;
 
-  Map<String, dynamic> toJson() => {'role': role, 'content': content};
-  factory ChatMessage.fromJson(Map<String, dynamic> j) =>
-      ChatMessage(role: j['role'] as String, content: j['content'] as String);
+  const ChatMessage({
+    required this.role,
+    required this.content,
+    this.reasoning = '',
+    this.interrupted = false,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'role': role,
+        'content': content,
+        if (reasoning.isNotEmpty) 'reasoning': reasoning,
+        if (interrupted) 'interrupted': true,
+      };
+
+  factory ChatMessage.fromJson(Map<String, dynamic> j) => ChatMessage(
+        role: j['role'] as String,
+        content: j['content'] as String,
+        reasoning: (j['reasoning'] as String?) ?? '',
+        interrupted: (j['interrupted'] as bool?) ?? false,
+      );
 }
 
 class ReadingRecord {

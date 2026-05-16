@@ -166,7 +166,10 @@ class _ReadingScreenState extends State<ReadingScreen> {
     try {
       final stream = LLMClient.streamChat(
         widget.config,
-        _messages.map((m) => {'role': m.role, 'content': m.content}).toList(),
+        _messages
+            // 只把 user/assistant/system 的 content 喂给 LLM (reasoning 不用回灌)
+            .map((m) => {'role': m.role, 'content': m.content})
+            .toList(),
       );
       await for (final chunk in stream) {
         if (chunk.type == LLMChunkType.reasoning) {
@@ -179,7 +182,11 @@ class _ReadingScreenState extends State<ReadingScreen> {
         _scrollToBottom();
       }
       setState(() {
-        _messages.add(ChatMessage(role: 'assistant', content: contentBuf.toString()));
+        _messages.add(ChatMessage(
+          role: 'assistant',
+          content: contentBuf.toString(),
+          reasoning: reasoningBuf.toString(),
+        ));
         _streaming = false;
         _streamingText = '';
         _streamingReasoning = '';
@@ -187,11 +194,39 @@ class _ReadingScreenState extends State<ReadingScreen> {
       });
       _scrollToBottom();
     } catch (e) {
+      // 流被打断: 保留已经收到的部分, 标记 interrupted, 用户可以点"继续"
+      final partial = contentBuf.toString();
+      final partialReasoning = reasoningBuf.toString();
       setState(() {
+        if (partial.isNotEmpty || partialReasoning.isNotEmpty) {
+          _messages.add(ChatMessage(
+            role: 'assistant',
+            content: partial,
+            reasoning: partialReasoning,
+            interrupted: true,
+          ));
+        }
         _streaming = false;
+        _streamingText = '';
+        _streamingReasoning = '';
         _error = e.toString();
+        _saved = false;
       });
     }
+  }
+
+  /// 续传: 给 LLM 一条 user 指令"继续刚才的回答", 让它接着说.
+  Future<void> _continueInterrupted() async {
+    if (_streaming) return;
+    // 已经在 _messages 末尾有一条 interrupted 的 assistant. 直接发"请继续".
+    setState(() {
+      _messages.add(const ChatMessage(
+        role: 'user',
+        content: '(刚才网络中断了, 请接着上面没说完的部分继续, 不要重复已经写过的内容.)',
+      ));
+      _error = null;
+    });
+    await _runStream();
   }
 
   void _scrollToBottom() {
@@ -281,13 +316,30 @@ class _ReadingScreenState extends State<ReadingScreen> {
         final m = _messages[i];
         if (m.role == 'system') continue;
         if (i == 1 && m.role == 'user') continue;
+        // assistant 消息且带思考链 → 折叠面板 (默认折起, 用户可点开)
+        if (m.role == 'assistant' && m.reasoning.isNotEmpty) {
+          widgets.add(_ReasoningPanel(
+            text: m.reasoning,
+            accent: _accent,
+            initialExpanded: false,
+          ));
+        }
         widgets.add(_ChatBubble(message: m, accent: _accent));
+        // 被打断的助手消息 → 下面跟"继续"按钮 (仅最后一条 + 不在流式中)
+        if (m.role == 'assistant' &&
+            m.interrupted &&
+            !_streaming &&
+            i == _messages.length - 1) {
+          widgets.add(_ContinueButton(accent: _accent, onTap: _continueInterrupted));
+        }
       }
-      // 推理过程 (R1 等模型): 流式但用浅色字, 可视化思考链.
-      if (_streaming && _streamingReasoning.isNotEmpty && _streamingText.isEmpty) {
+      // 推理过程 (R1 等模型): 流式中显示, 默认展开
+      if (_streaming && _streamingReasoning.isNotEmpty) {
         widgets.add(_ReasoningPanel(
           text: _streamingReasoning,
           accent: _accent,
+          live: true,
+          initialExpanded: _streamingText.isEmpty, // 正文开始后自动折起
         ));
       }
       // 正文流式
@@ -778,18 +830,25 @@ class _ChatBubble extends StatelessWidget {
 }
 
 /// 推理模型 (DeepSeek R1 等) 思考过程的折叠面板.
-/// 默认展开, 内容用浅色字呈现, 视觉上区分于正文.
+/// 流式过程中默认展开 (initialExpanded=true), 完成后存到 ChatMessage 里, 渲染时默认折起.
 class _ReasoningPanel extends StatefulWidget {
-  const _ReasoningPanel({required this.text, required this.accent});
+  const _ReasoningPanel({
+    required this.text,
+    required this.accent,
+    this.initialExpanded = true,
+    this.live = false, // 是否在流式中 (影响图标动效与文案)
+  });
   final String text;
   final Color accent;
+  final bool initialExpanded;
+  final bool live;
 
   @override
   State<_ReasoningPanel> createState() => _ReasoningPanelState();
 }
 
 class _ReasoningPanelState extends State<_ReasoningPanel> {
-  bool _expanded = true;
+  late bool _expanded = widget.initialExpanded;
 
   @override
   Widget build(BuildContext context) {
@@ -815,15 +874,19 @@ class _ReasoningPanelState extends State<_ReasoningPanel> {
               padding: const EdgeInsets.symmetric(vertical: 2),
               child: Row(
                 children: [
-                  SizedBox(
-                    width: 14, height: 14,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 1.8,
-                      color: widget.accent,
-                    ),
-                  ),
+                  if (widget.live)
+                    SizedBox(
+                      width: 14, height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 1.8,
+                        color: widget.accent,
+                      ),
+                    )
+                  else
+                    Icon(Icons.psychology_outlined,
+                        size: 16, color: theme.colorScheme.onSurfaceVariant),
                   const SizedBox(width: 8),
-                  Text('推理中',
+                  Text(widget.live ? '推理中' : '思考过程',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                         fontWeight: FontWeight.w600,
@@ -837,12 +900,57 @@ class _ReasoningPanelState extends State<_ReasoningPanel> {
           ),
           if (_expanded) ...[
             const SizedBox(height: 4),
-            Text(widget.text,
+            SelectableText(widget.text,
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.85),
                   height: 1.55,
                 )),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// 流被打断时显示的"继续"按钮.
+class _ContinueButton extends StatelessWidget {
+  const _ContinueButton({required this.accent, required this.onTap});
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(0, 4, 0, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.error_outline, size: 16,
+                  color: theme.colorScheme.error),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text('上面这段被打断了',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.error,
+                    )),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          OutlinedButton.icon(
+            onPressed: onTap,
+            icon: const Icon(Icons.play_arrow, size: 16),
+            label: const Text('继续未完成的部分'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: accent,
+              side: BorderSide(color: accent.withValues(alpha: 0.5)),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              visualDensity: VisualDensity.compact,
+            ),
+          ),
         ],
       ),
     );
