@@ -14,6 +14,15 @@ import 'package:lunar/lunar.dart';
 
 import 'divination.dart';
 
+String _safe(String Function() fn) {
+  try {
+    final v = fn();
+    return v;
+  } catch (_) {
+    return '';
+  }
+}
+
 class BaziEngine extends DivinationEngine {
   @override String get id => 'bazi';
   @override String get nameZh => '八字';
@@ -120,8 +129,8 @@ class BaziEngine extends DivinationEngine {
     final yearGz = ec.getYear();           // 例 "丙寅"
     final monthGz = ec.getMonth();         // 例 "癸巳"
     final dayGz = ec.getDay();             // 例 "戊辰"
-    final hourGz = timeKnown ? ec.getTime() : '—';  // 时柱
-    final dayMaster = dayGz.isNotEmpty ? dayGz.substring(0, 1) : '?'; // 日主
+    final hourGz = timeKnown ? ec.getTime() : '—';
+    final dayMaster = dayGz.isNotEmpty ? dayGz.substring(0, 1) : '?';
 
     // 农历日期
     final lunarStr = '${lunar.getYearInChinese()}年 '
@@ -129,6 +138,42 @@ class BaziEngine extends DivinationEngine {
         '${lunar.getDayInChinese()}';
     final zodiac = lunar.getYearShengXiao();
     final term = lunar.getJieQi();
+
+    // 十神 (相对日主)
+    final shiShenYearGan = _safe(() => ec.getYearShiShenGan());
+    final shiShenMonthGan = _safe(() => ec.getMonthShiShenGan());
+    final shiShenHourGan = timeKnown ? _safe(() => ec.getTimeShiShenGan()) : '';
+    final shiShenYearZhi = _safe(() => ec.getYearShiShenZhi().join('/'));
+    final shiShenMonthZhi = _safe(() => ec.getMonthShiShenZhi().join('/'));
+    final shiShenDayZhi = _safe(() => ec.getDayShiShenZhi().join('/'));
+    final shiShenHourZhi =
+        timeKnown ? _safe(() => ec.getTimeShiShenZhi().join('/')) : '';
+
+    // 大运 (需要性别; 不知道时按男算, 仅作参考)
+    int genderInt = 1; // male default
+    if (gender == '女' || gender.toLowerCase() == 'female') genderInt = 0;
+    final daYunList = <Map<String, dynamic>>[];
+    String startYunDesc = '';
+    try {
+      final yun = ec.getYun(genderInt);
+      startYunDesc = '起运: 出生后 ${yun.getStartYear()} 年 '
+          '${yun.getStartMonth()} 月 ${yun.getStartDay()} 天, '
+          '即 ${yun.getStartSolar().toYmd()} 起运';
+      final daYun = yun.getDaYun(); // 起运 + 8 大运 (含起运一行)
+      for (var i = 0; i < daYun.length && i < 9; i++) {
+        final d = daYun[i];
+        daYunList.add({
+          'index': i,
+          'gz': d.getGanZhi().isEmpty ? '(起运前)' : d.getGanZhi(),
+          'startYear': d.getStartYear(),
+          'endYear': d.getEndYear(),
+          'startAge': d.getStartAge(),
+          'endAge': d.getEndAge(),
+        });
+      }
+    } catch (_) {
+      // 性别未知或库异常时不强行算
+    }
 
     final items = <DivinationItem>[
       DivinationItem(
@@ -187,6 +232,17 @@ class BaziEngine extends DivinationEngine {
           'day': dayGz,
           'hour': timeKnown ? hourGz : '',
         },
+        'shiShen': {
+          'yearGan': shiShenYearGan,
+          'monthGan': shiShenMonthGan,
+          'hourGan': shiShenHourGan,
+          'yearZhi': shiShenYearZhi,
+          'monthZhi': shiShenMonthZhi,
+          'dayZhi': shiShenDayZhi,
+          'hourZhi': shiShenHourZhi,
+        },
+        'startYun': startYunDesc,
+        'daYun': daYunList,
       },
     );
   }
@@ -195,8 +251,9 @@ class BaziEngine extends DivinationEngine {
   String buildUserPrompt({required String question, required DivinationResult result}) {
     final ex = result.extras;
     final p = (ex['pillars'] as Map);
+    final ss = (ex['shiShen'] as Map);
     final buf = StringBuffer();
-    buf.writeln('请基于以下精确排出的四柱给我做子平八字解读.');
+    buf.writeln('请基于以下精确排出的四柱与十神给我做子平八字解读.');
     buf.writeln();
     buf.writeln('阳历: ${ex["birthdate"]}${(ex["birthtime"] as String).isNotEmpty ? " ${ex["birthtime"]}" : " (时辰未知)"}');
     buf.writeln('农历: ${ex["lunarDate"]}  ·  生肖: ${ex["zodiac"]}');
@@ -207,14 +264,26 @@ class BaziEngine extends DivinationEngine {
       buf.writeln('性别: ${ex["gender"]}');
     }
     buf.writeln();
-    buf.writeln('四柱:');
-    buf.writeln('  年柱: ${p["year"]}');
-    buf.writeln('  月柱: ${p["month"]}  (月令)');
-    buf.writeln('  日柱: ${p["day"]}  ← 日主: ${ex["dayMaster"]}');
+    buf.writeln('四柱 (左→右: 年/月/日/时):');
+    buf.writeln('  年柱: ${p["year"]}    天干十神: ${ss["yearGan"]}    地支藏干十神: ${ss["yearZhi"]}');
+    buf.writeln('  月柱: ${p["month"]}  (月令)  天干十神: ${ss["monthGan"]}    地支藏干十神: ${ss["monthZhi"]}');
+    buf.writeln('  日柱: ${p["day"]}  ← 日主: ${ex["dayMaster"]}                地支藏干十神: ${ss["dayZhi"]}');
     if ((p['hour'] as String).isNotEmpty) {
-      buf.writeln('  时柱: ${p["hour"]}');
+      buf.writeln('  时柱: ${p["hour"]}    天干十神: ${ss["hourGan"]}    地支藏干十神: ${ss["hourZhi"]}');
     } else {
-      buf.writeln('  时柱: 未知 (无法排时支, 推断深度受限)');
+      buf.writeln('  时柱: 未知');
+    }
+    buf.writeln();
+    if ((ex['startYun'] as String).isNotEmpty) {
+      buf.writeln(ex['startYun']);
+    }
+    final daYun = (ex['daYun'] as List).cast<Map>();
+    if (daYun.isNotEmpty) {
+      buf.writeln('大运 (10 年一柱):');
+      for (final d in daYun.skip(1)) {
+        buf.writeln('  ${d["gz"]}: ${d["startYear"]} - ${d["endYear"]} '
+            '(${d["startAge"]} - ${d["endAge"]} 岁)');
+      }
     }
     buf.writeln();
     buf.writeln('关注方向: ${ex["focus"]}');
@@ -222,7 +291,12 @@ class BaziEngine extends DivinationEngine {
       buf.writeln('我的问题: ${question.trim()}');
     }
     buf.writeln();
-    buf.writeln('请按子平命理: 分析日主旺衰、月令对日主的影响、十神格局, 联系问题方向给出可落地的判断与建议.');
+    buf.writeln('请按子平命理深入解读: '
+        '\n1. 日主旺衰、月令格局, '
+        '\n2. 显著十神关系 (官杀财印食伤比劫的实际作用), '
+        '\n3. 大运起运 + 接下来 3-4 步大运的吉凶倾向, '
+        '\n4. 若关注方向是事业/感情/财运/健康, 重点回应该领域, '
+        '\n5. 不预测具体年份吉凶, 给方向, 给可执行建议.');
     return buf.toString();
   }
 

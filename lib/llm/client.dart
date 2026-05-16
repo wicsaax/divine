@@ -10,6 +10,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'config.dart';
+import 'stream_service.dart';
 
 enum LLMChunkType { content, reasoning }
 
@@ -94,6 +95,7 @@ class LLMClient {
     req.body = body;
 
     final client = http.Client();
+    await LlmStreamService.start();
     try {
       final resp = await client.send(req);
       if (resp.statusCode != 200) {
@@ -132,6 +134,7 @@ class LLMClient {
       }
     } finally {
       client.close();
+      await LlmStreamService.stop();
     }
   }
 }

@@ -6,6 +6,7 @@ import '../../llm/client.dart';
 import '../../llm/config.dart';
 import '../../storage/history.dart';
 import '../../storage/profile.dart';
+import '../widgets/tarot_card_widget.dart';
 import 'profiles_screen.dart';
 
 class ReadingScreen extends StatefulWidget {
@@ -709,6 +710,10 @@ class _DivinationCard extends StatelessWidget {
   }
 
   List<Widget> _buildItems(BuildContext context, Color accent) {
+    // 塔罗专属: 用真实牌面 widget + 翻转动画
+    if (engine.id == 'tarot') {
+      return [_TarotCardRow(result: result)];
+    }
     return [
       for (final it in result.items) _itemRow(context, it, accent),
     ];
@@ -1073,6 +1078,85 @@ class _TagEditor extends StatelessWidget {
           label: const Text('+ 标签', style: TextStyle(fontSize: 12)),
           visualDensity: VisualDensity.compact,
           onPressed: () => _addTag(context),
+        ),
+      ],
+    );
+  }
+}
+
+/// 塔罗牌一行: 牌面 widget + 关键词. 每张卡有翻转入场动画.
+class _TarotCardRow extends StatelessWidget {
+  const _TarotCardRow({required this.result});
+  final DivinationResult result;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cards = result.items;
+    final isSingle = cards.length == 1;
+    final cardWidth = isSingle ? 140.0 : 96.0;
+    final cardHeight = isSingle ? 224.0 : 154.0;
+    return Column(
+      children: [
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                for (var i = 0; i < cards.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 10),
+                  TarotCardWidget(
+                    width: cardWidth,
+                    height: cardHeight,
+                    flipDelayMs: 250 + i * 380,
+                    position: cards[i].position,
+                    card: TarotCardData(
+                      nameZh: cards[i].name,
+                      nameEn: cards[i].subtitle ?? '',
+                      suit: (cards[i].extra['suit'] as String?) ?? 'major',
+                      number: (cards[i].extra['number'] as String?) ?? '',
+                      reversed: (cards[i].extra['reversed'] as bool?) ?? false,
+                      keywords: cards[i].keywords,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        // 关键词区, 每张牌一段
+        Column(
+          children: [
+            for (final c in cards)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 72,
+                      child: Text(
+                        c.position,
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        '${c.name}  ·  ${c.orientation}\n${c.keywords.join(" · ")}',
+                        style: theme.textTheme.bodySmall?.copyWith(height: 1.5),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
         ),
       ],
     );

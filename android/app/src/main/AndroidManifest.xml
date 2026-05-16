@@ -1,6 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- divine 需要联网调用 LLM API (DeepSeek / OpenAI 等) -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 前台服务保活流式 LLM 请求 (切到别的 app 时不被 OEM 杀网络) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
         android:label="divine"
         android:name="${applicationName}"
@@ -32,6 +36,11 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- 前台服务: 保活 LLM 流式请求 -->
+        <service
+            android:name=".LlmStreamService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
