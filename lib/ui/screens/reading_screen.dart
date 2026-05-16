@@ -72,7 +72,6 @@ class _ReadingScreenState extends State<ReadingScreen> {
   void _autoSaveIfNeeded() {
     if (_saved) return;
     if (_result == null) return;
-    if (_messages.length < 2) return;
     HistoryStore.append(ReadingRecord(
       engineId: widget.engine.id,
       engineName: widget.engine.nameZh,
@@ -100,7 +99,6 @@ class _ReadingScreenState extends State<ReadingScreen> {
       return;
     }
     HapticFeedback.mediumImpact();
-    final question = _questionCtl.text.trim();
     final inputs = {
       for (final e in _inputCtls.entries) e.key: e.value.text.trim(),
     };
@@ -113,20 +111,33 @@ class _ReadingScreenState extends State<ReadingScreen> {
       return;
     }
 
-    final userPrompt = widget.engine.buildUserPrompt(
-      question: question,
-      result: result,
-    );
-
     setState(() {
       _result = result;
+      _messages.clear();
+      _error = null;
+      _saved = false;
+    });
+
+    // 没有结构化输出的引擎 (通用 AI / 八字 / 占星), 抽完直接走 LLM, 否则等用户点解读.
+    if (!widget.engine.hasStandaloneResult) {
+      await _interpret();
+    }
+  }
+
+  /// 点"解读"或必须 LLM 引擎抽完后调用. 把 result + question 喂给 LLM 流式输出.
+  Future<void> _interpret() async {
+    if (_streaming || _result == null) return;
+    final question = _questionCtl.text.trim();
+    final userPrompt = widget.engine.buildUserPrompt(
+      question: question,
+      result: _result!,
+    );
+    setState(() {
       _messages
         ..clear()
         ..add(ChatMessage(role: 'system', content: widget.engine.systemPrompt))
         ..add(ChatMessage(role: 'user', content: userPrompt));
-      _error = null;
     });
-
     await _runStream();
   }
 
@@ -232,7 +243,8 @@ class _ReadingScreenState extends State<ReadingScreen> {
               children: _buildContent(theme),
             ),
           ),
-          if (_result != null) _buildFollowupBar(theme),
+          // 解读已经开始 (有 message) 后才出现追问栏
+          if (_result != null && _messages.isNotEmpty) _buildFollowupBar(theme),
         ],
       ),
     );
@@ -245,6 +257,17 @@ class _ReadingScreenState extends State<ReadingScreen> {
     } else {
       widgets.add(_DivinationCard(engine: widget.engine, result: _result!));
       widgets.add(const SizedBox(height: 16));
+
+      // 还没开始解读 + 有可独立呈现的结果 → 显示"解读"按钮
+      if (_messages.isEmpty && !_streaming) {
+        widgets.add(_InterpretCTA(
+          accent: _accent,
+          configured: widget.config.isReady,
+          onTap: widget.config.isReady ? _interpret : null,
+        ));
+        return widgets;
+      }
+
       // 如果用户输入了问题, 显示为首个聊天气泡 (替代隐藏的结构化 prompt)
       final q = _questionCtl.text.trim();
       if (q.isNotEmpty) {
@@ -822,6 +845,53 @@ class _ReasoningPanelState extends State<_ReasoningPanel> {
           ],
         ],
       ),
+    );
+  }
+}
+
+/// "解读"按钮: 在结果已出但还没调 LLM 时显示.
+/// 用户可以先看结果, 不想花 token 就直接退出 (会自动存历史).
+class _InterpretCTA extends StatelessWidget {
+  const _InterpretCTA({
+    required this.accent,
+    required this.configured,
+    required this.onTap,
+  });
+  final Color accent;
+  final bool configured;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          configured
+              ? '想看 AI 解读? 点下面.'
+              : '想看 AI 解读, 需要先配 LLM (回首页右上角设置).',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 10),
+        FilledButton.icon(
+          onPressed: onTap,
+          style: FilledButton.styleFrom(backgroundColor: accent),
+          icon: const Icon(Icons.auto_awesome),
+          label: const Text('让 AI 解读这次占卜'),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          '不想看解读? 直接返回, 结果已自动保存到历史.',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+          ),
+        ),
+      ],
     );
   }
 }

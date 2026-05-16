@@ -6,15 +6,12 @@ on:
     tags: ['v*']
   pull_request:
     branches: [main, master]
-  workflow_dispatch:  # 允许在 Actions 页面手动触发
+  workflow_dispatch:
 
 permissions:
-  contents: write  # 创建 Release 时需要
+  contents: write
 
 jobs:
-  # ------------------------------------------------------------------
-  # 1. 测试 + 静态分析 (跑得最快, 出问题第一时间知道)
-  # ------------------------------------------------------------------
   test:
     runs-on: ubuntu-latest
     steps:
@@ -28,9 +25,6 @@ jobs:
       - run: flutter analyze
       - run: flutter test
 
-  # ------------------------------------------------------------------
-  # 2. Android APK (Ubuntu runner)
-  # ------------------------------------------------------------------
   build-android:
     needs: test
     runs-on: ubuntu-latest
@@ -53,24 +47,19 @@ jobs:
       - run: flutter pub get
       - run: flutter build apk --release
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: divine-android-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 30
 
-  # ------------------------------------------------------------------
-  # 3. Windows EXE (Windows runner)
-  # ------------------------------------------------------------------
   build-windows:
     needs: test
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@v2
         with:
           channel: stable
           flutter-version: '3.41.9'
@@ -78,11 +67,8 @@ jobs:
 
       - run: flutter pub get
       - run: flutter config --enable-windows-desktop
-
-      # 仓库里没有 windows/ 平台文件 (因为是在 Mac 上创建的),
-      # 在 CI 里临时生成. flutter create 会跳过已存在的文件.
+      # 仓库里没有 windows/ 平台文件 (在 Mac 上创建的), 在 CI 里补一下.
       - run: flutter create --platforms=windows .
-
       - run: flutter build windows --release
 
       - name: Package Release folder into zip
@@ -92,57 +78,14 @@ jobs:
           if (-not (Test-Path $src)) { $src = "build\windows\runner\Release" }
           Compress-Archive -Path "$src\*" -DestinationPath "divine-windows.zip" -Force
 
-      - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: divine-windows-exe
           path: divine-windows.zip
           retention-days: 30
 
-  # ------------------------------------------------------------------
-  # 4. iOS .ipa (macOS runner, 未签名)
-  #
-  # 未签名的 ipa 装不到真机上 (苹果硬限制). 要装到 iPhone:
-  #   - 注册 Apple Developer Program (¥688/年)
-  #   - 在仓库 Settings → Secrets 配 BUILD_CERTIFICATE_BASE64,
-  #     P12_PASSWORD, PROVISIONING_PROFILE_BASE64, KEYCHAIN_PASSWORD,
-  #     APPLE_TEAM_ID 五项, 然后把下面的 --no-codesign 改为正常签名 +
-  #     用 fastlane / xcode-build-action 上传到 TestFlight.
-  # 当前阶段先跑通编译, 作为 iOS 代码质量门禁.
-  # ------------------------------------------------------------------
-  build-ios:
-    needs: test
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          flutter-version: '3.41.9'
-          cache: true
-
-      - run: flutter pub get
-      - run: flutter build ios --release --no-codesign
-
-      - name: Package unsigned .app into zip
-        run: |
-          cd build/ios/iphoneos
-          zip -ry "$GITHUB_WORKSPACE/divine-ios-unsigned.zip" Runner.app
-
-      - name: Upload iOS artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: divine-ios-unsigned
-          path: divine-ios-unsigned.zip
-          retention-days: 30
-
-  # ------------------------------------------------------------------
-  # 5. 打 tag 时自动建 Release, 把所有平台产物挂上去
-  # ------------------------------------------------------------------
   release:
-    needs: [build-android, build-windows, build-ios]
+    needs: [build-android, build-windows]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
@@ -155,14 +98,11 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/}
           mv artifacts/divine-android-apk/app-release.apk artifacts/divine-${VERSION}.apk
           mv artifacts/divine-windows-exe/divine-windows.zip artifacts/divine-${VERSION}-windows.zip
-          mv artifacts/divine-ios-unsigned/divine-ios-unsigned.zip artifacts/divine-${VERSION}-ios-unsigned.zip
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
         with:
           name: divine ${{ github.ref_name }}
           generate_release_notes: true
           files: |
             artifacts/divine-*.apk
             artifacts/divine-*-windows.zip
-            artifacts/divine-*-ios-unsigned.zip

@@ -23,6 +23,9 @@ class BaziEngine extends DivinationEngine {
   @override int? get accentColorHex => 0xFF8C3A3A; // 朱砂红
 
   @override
+  bool get hasStandaloneResult => false; // 没有本地排盘, 完全靠 LLM
+
+  @override
   String get systemPrompt =>
       '你是一位精研子平八字的命理师, 兼具学术派的克制与实战派的判断力.\n'
       '\n阅读规则:\n'

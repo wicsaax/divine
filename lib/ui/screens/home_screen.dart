@@ -31,12 +31,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _openReading(DivinationEngine engine) async {
-    if (!_config.isReady) {
+    // 只有"必须 LLM"的引擎才在 LLM 未配置时拦截 (因为它们没结构化输出).
+    // 其它引擎可以离线占卜, 只是看不到 AI 解读.
+    if (!_config.isReady && !engine.hasStandaloneResult) {
       final go = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('先配置 LLM'),
-          content: const Text('需要填写 API endpoint 与 key 才能进行解读. 现在去设置吗？'),
+          title: const Text('这种占卜必须配 LLM'),
+          content: Text('${engine.nameZh} 没有可独立呈现的结果, 需要 AI 解读. 现在去设置 LLM 吗？'),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
             FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('去设置')),

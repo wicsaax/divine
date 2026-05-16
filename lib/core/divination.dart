@@ -134,6 +134,11 @@ abstract class DivinationEngine {
   /// 比如塔罗用紫, 六爻用青, 占星用深蓝. 默认 null = 走主题色.
   int? get accentColorHex => null;
 
+  /// 该引擎能不能在不调 LLM 的情况下给出"有意义的结果".
+  /// true (默认): 抽完牌就有牌, 起完卦就有卦, LLM 是可选的进一步解读.
+  /// false: 没有结构化输出, 必须 LLM 才能产出任何东西 (如通用 AI 占卜、八字、占星).
+  bool get hasStandaloneResult => true;
+
   /// 该占卜法的所有变体. 至少要有一个.
   List<DivinationVariant> get variants;
 

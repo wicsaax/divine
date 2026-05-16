@@ -20,6 +20,9 @@ class AstrologyEngine extends DivinationEngine {
   @override int? get accentColorHex => 0xFF2E3A6E; // 深夜蓝
 
   @override
+  bool get hasStandaloneResult => false; // 没有本地排盘, 完全靠 LLM
+
+  @override
   String get systemPrompt =>
       '你是一位资深的西洋占星师, 既懂传统占星 (Hellenistic/Medieval), 也熟悉现代心理占星 '
       '(Jung/Greene/Hand). 风格深刻但克制.\n'

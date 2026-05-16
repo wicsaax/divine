@@ -73,6 +73,9 @@ class GenericEngine extends DivinationEngine {
   int? get accentColorHex => 0xFF5E72A8; // 灰蓝
 
   @override
+  bool get hasStandaloneResult => false; // 纯 AI 引擎, 没有结构化输出
+
+  @override
   DivinationResult perform({
     required String variantKey,
     Map<String, String> inputs = const {},
