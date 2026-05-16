@@ -100,10 +100,49 @@ jobs:
           retention-days: 30
 
   # ------------------------------------------------------------------
-  # 4. 打 tag 时自动建 Release, 把 APK + Windows zip 挂上去
+  # 4. iOS .ipa (macOS runner, 未签名)
+  #
+  # 未签名的 ipa 装不到真机上 (苹果硬限制). 要装到 iPhone:
+  #   - 注册 Apple Developer Program (¥688/年)
+  #   - 在仓库 Settings → Secrets 配 BUILD_CERTIFICATE_BASE64,
+  #     P12_PASSWORD, PROVISIONING_PROFILE_BASE64, KEYCHAIN_PASSWORD,
+  #     APPLE_TEAM_ID 五项, 然后把下面的 --no-codesign 改为正常签名 +
+  #     用 fastlane / xcode-build-action 上传到 TestFlight.
+  # 当前阶段先跑通编译, 作为 iOS 代码质量门禁.
+  # ------------------------------------------------------------------
+  build-ios:
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.41.9'
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter build ios --release --no-codesign
+
+      - name: Package unsigned .app into zip
+        run: |
+          cd build/ios/iphoneos
+          zip -ry "$GITHUB_WORKSPACE/divine-ios-unsigned.zip" Runner.app
+
+      - name: Upload iOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: divine-ios-unsigned
+          path: divine-ios-unsigned.zip
+          retention-days: 30
+
+  # ------------------------------------------------------------------
+  # 5. 打 tag 时自动建 Release, 把所有平台产物挂上去
   # ------------------------------------------------------------------
   release:
-    needs: [build-android, build-windows]
+    needs: [build-android, build-windows, build-ios]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
@@ -111,11 +150,12 @@ jobs:
         with:
           path: artifacts
 
-      - name: Rename APK with version
+      - name: Rename artifacts with version
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
           mv artifacts/divine-android-apk/app-release.apk artifacts/divine-${VERSION}.apk
           mv artifacts/divine-windows-exe/divine-windows.zip artifacts/divine-${VERSION}-windows.zip
+          mv artifacts/divine-ios-unsigned/divine-ios-unsigned.zip artifacts/divine-${VERSION}-ios-unsigned.zip
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -125,3 +165,4 @@ jobs:
           files: |
             artifacts/divine-*.apk
             artifacts/divine-*-windows.zip
+            artifacts/divine-*-ios-unsigned.zip
