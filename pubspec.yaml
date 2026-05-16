@@ -23,7 +23,29 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.14.1
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/tarot/
+    - assets/icon/
   # 注: sweph 包自己声明了 assets/ephe/, 不用在这里重复.
+
+# 生成 iOS / Android 各尺寸 app 图标 — 跑: flutter pub run flutter_launcher_icons
+flutter_launcher_icons:
+  android: "ic_launcher"
+  ios: true
+  image_path: "assets/icon/app_icon.jpg"
+  min_sdk_android: 21
+  remove_alpha_ios: true
+  background_color_ios: "#2D1B4E"
+  web:
+    generate: true
+    image_path: "assets/icon/app_icon.jpg"
+    background_color: "#2D1B4E"
+    theme_color: "#6B4D9C"
+  windows:
+    generate: true
+    image_path: "assets/icon/app_icon.jpg"
+    icon_size: 256

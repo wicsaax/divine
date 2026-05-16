@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../core/divination.dart';
+import '../../i18n/strings.dart';
 import '../../llm/config.dart';
+import '../../storage/app_settings.dart';
 import 'history_screen.dart';
 import 'profiles_screen.dart';
 import 'reading_screen.dart';
@@ -17,6 +19,22 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   late LLMConfig _config = widget.config;
+  bool _autoOpenedDefault = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // 冷启动如果用户设了默认占卜方式, 自动打开它一次 (本次会话内不重复)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_autoOpenedDefault) return;
+      final defaultId = AppSettings.instance.defaultEngine;
+      if (defaultId == null) return;
+      final engine = DivinationRegistry.get(defaultId);
+      if (engine == null) return;
+      _autoOpenedDefault = true;
+      _openReading(engine);
+    });
+  }
 
   Future<void> _openSettings() async {
     final updated = await Navigator.of(context).push<LLMConfig>(
@@ -73,7 +91,7 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             const Text('🔮', style: TextStyle(fontSize: 22)),
             const SizedBox(width: 8),
-            Text('divine',
+            Text(S.t('app.title'),
                 style: theme.textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.w600,
                   letterSpacing: 0.5,
@@ -82,17 +100,17 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         actions: [
           IconButton(
-            tooltip: '档案',
+            tooltip: S.t('tip.profiles'),
             onPressed: _openProfiles,
             icon: const Icon(Icons.contacts_outlined),
           ),
           IconButton(
-            tooltip: '历史',
+            tooltip: S.t('tip.history'),
             onPressed: _openHistory,
             icon: const Icon(Icons.history),
           ),
           IconButton(
-            tooltip: '设置',
+            tooltip: S.t('tip.settings'),
             onPressed: _openSettings,
             icon: const Icon(Icons.settings_outlined),
           ),
@@ -112,7 +130,7 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Row(
                 children: [
                   Text(
-                    '占卜方式',
+                    S.t('home.method_section'),
                     style: theme.textTheme.titleMedium?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                       fontWeight: FontWeight.w500,
@@ -120,7 +138,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const Spacer(),
                   Text(
-                    '共 ${engines.length} 种',
+                    S.t('home.method_count').replaceAll('{n}', '${engines.length}'),
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
@@ -189,14 +207,14 @@ class _ReadyHero extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '今天想问点什么',
+                  S.t('app.tagline'),
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '选一种方式, 抽完牌可以接着追问',
+                  S.t('app.subtagline'),
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
@@ -234,7 +252,7 @@ class _UnconfiguredBanner extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '先去配 LLM, 否则没法解读',
+                      S.t('home.unconfigured_title'),
                       style: TextStyle(
                         color: theme.colorScheme.onTertiaryContainer,
                         fontWeight: FontWeight.w600,
@@ -242,7 +260,7 @@ class _UnconfiguredBanner extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      '推荐 DeepSeek, 几块钱能玩很久',
+                      S.t('home.unconfigured_sub'),
                       style: TextStyle(
                         color: theme.colorScheme.onTertiaryContainer.withValues(alpha: 0.8),
                       ),

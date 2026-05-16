@@ -14,11 +14,12 @@ import 'core/runes.dart';
 import 'core/tarot.dart';
 import 'core/yesno.dart';
 import 'core/ziwei.dart';
+import 'i18n/strings.dart';
 import 'llm/config.dart';
+import 'storage/app_settings.dart';
 import 'ui/screens/home_screen.dart';
 
 void _registerEngines() {
-  // 顺序决定首页展示顺序; 把最常用/最有视觉感的放前面
   DivinationRegistry.register(TarotEngine());
   DivinationRegistry.register(LenormandEngine());
   DivinationRegistry.register(IChingEngine());
@@ -37,6 +38,12 @@ void _registerEngines() {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   _registerEngines();
+  await AppSettings.instance.load();
+  S.setLocale(AppSettings.instance.locale);
+  // 同步 settings.locale ↔ S.locale
+  AppSettings.instance.addListener(() {
+    S.setLocale(AppSettings.instance.locale);
+  });
   final config = await LLMConfigStore.load();
   runApp(DivineApp(initialConfig: config));
 }
@@ -47,13 +54,33 @@ class DivineApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'divine',
-      debugShowCheckedModeBanner: false,
-      themeMode: ThemeMode.system,
-      theme: _buildTheme(Brightness.light),
-      darkTheme: _buildTheme(Brightness.dark),
-      home: HomeScreen(config: initialConfig),
+    // 监听 AppSettings 整体变更 (主题/字号), locale 监听走 S.locale
+    return AnimatedBuilder(
+      animation: AppSettings.instance,
+      builder: (ctx, _) {
+        return ValueListenableBuilder<String>(
+          valueListenable: S.locale,
+          builder: (ctx, locale, _) {
+            return MaterialApp(
+              title: 'divine',
+              debugShowCheckedModeBanner: false,
+              themeMode: AppSettings.instance.materialThemeMode,
+              theme: _buildTheme(Brightness.light),
+              darkTheme: _buildTheme(Brightness.dark),
+              builder: (ctx, child) {
+                final scale = AppSettings.instance.fontScale;
+                return MediaQuery(
+                  data: MediaQuery.of(ctx).copyWith(
+                    textScaler: TextScaler.linear(scale),
+                  ),
+                  child: child!,
+                );
+              },
+              home: HomeScreen(config: initialConfig),
+            );
+          },
+        );
+      },
     );
   }
 

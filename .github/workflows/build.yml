@@ -53,6 +53,34 @@ jobs:
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 30
 
+  build-web:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.41.9'
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter config --enable-web
+      - run: flutter create --platforms=web .
+      - run: flutter build web --release --base-href "/"
+
+      - name: Package web build
+        run: |
+          cd build/web
+          zip -ry "$GITHUB_WORKSPACE/divine-web.zip" .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: divine-web
+          path: divine-web.zip
+          retention-days: 30
+
   build-windows:
     needs: test
     runs-on: windows-latest
@@ -86,7 +114,7 @@ jobs:
 
   # 单个 Release, 同时挂 APK + Windows zip 两个文件.
   release:
-    needs: [build-android, build-windows]
+    needs: [build-android, build-windows, build-web]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
@@ -99,6 +127,7 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/}
           mv artifacts/divine-android-apk/app-release.apk artifacts/divine-${VERSION}.apk
           mv artifacts/divine-windows-exe/divine-windows.zip artifacts/divine-${VERSION}-windows.zip
+          mv artifacts/divine-web/divine-web.zip artifacts/divine-${VERSION}-web.zip
 
       - uses: softprops/action-gh-release@v2
         with:
@@ -111,6 +140,8 @@ jobs:
             |---|---|---|
             | Android | `divine-${{ github.ref_name }}.apk` | 传到手机, 允许未知来源, 点开安装 |
             | Windows | `divine-${{ github.ref_name }}-windows.zip` | 解压, 双击 `divine.exe` |
+            | Web    | `divine-${{ github.ref_name }}-web.zip` | 解压到任意静态 HTTP 服务器根目录 (Nginx/Caddy/Apache 都行) |
           files: |
             artifacts/divine-*.apk
             artifacts/divine-*-windows.zip
+            artifacts/divine-*-web.zip

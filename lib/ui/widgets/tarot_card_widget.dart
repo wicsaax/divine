@@ -137,9 +137,69 @@ class _CardFace extends StatelessWidget {
   final double width;
   final double height;
 
+  /// 韦特公版图: assets/tarot/<suit>_<NN>.jpg
+  String? get _assetPath {
+    if (card.suit == 'major') {
+      final n = _romanToInt(card.number);
+      if (n < 0) return null;
+      return 'assets/tarot/major_${n.toString().padLeft(2, '0')}.jpg';
+    } else {
+      final prefix = switch (card.suit) {
+        'wands' => 'wands',
+        'cups' => 'cups',
+        'swords' => 'swords',
+        'pentacles' => 'pents',
+        _ => null,
+      };
+      if (prefix == null) return null;
+      final idx = _minorNumToIdx(card.number);
+      if (idx < 1) return null;
+      return 'assets/tarot/${prefix}_${idx.toString().padLeft(2, '0')}.jpg';
+    }
+  }
+
+  int _romanToInt(String r) {
+    if (r == '0') return 0;
+    const m = {
+      'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5,
+      'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10,
+      'XI': 11, 'XII': 12, 'XIII': 13, 'XIV': 14, 'XV': 15,
+      'XVI': 16, 'XVII': 17, 'XVIII': 18, 'XIX': 19, 'XX': 20, 'XXI': 21,
+    };
+    return m[r] ?? -1;
+  }
+
+  int _minorNumToIdx(String n) {
+    if (n == 'A') return 1;
+    if (n == 'Page') return 11;
+    if (n == 'Knight') return 12;
+    if (n == 'Queen') return 13;
+    if (n == 'King') return 14;
+    return int.tryParse(n) ?? 0;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = _suitThemes[card.suit] ?? _suitThemes['major']!;
+    final asset = _assetPath;
+
+    Widget cardContent;
+    if (asset != null) {
+      // 真韦特公版图
+      cardContent = ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Image.asset(
+          asset,
+          width: width,
+          height: height,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => _ProgrammaticFace(card: card, theme: theme),
+        ),
+      );
+    } else {
+      cardContent = _ProgrammaticFace(card: card, theme: theme);
+    }
+
     return Transform(
       alignment: Alignment.center,
       transform: card.reversed
@@ -149,13 +209,9 @@ class _CardFace extends StatelessWidget {
         width: width,
         height: height,
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [theme.light, theme.dark],
-          ),
+          color: theme.dark,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.6), width: 2),
+          border: Border.all(color: const Color(0xFFD4AF37).withValues(alpha: 0.7), width: 1.5),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.25),
@@ -164,35 +220,50 @@ class _CardFace extends StatelessWidget {
             ),
           ],
         ),
-        padding: const EdgeInsets.all(8),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              card.number,
-              textAlign: TextAlign.left,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-                fontSize: 14,
-                shadows: [Shadow(color: Colors.black26, blurRadius: 2)],
-              ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(9),
+          child: cardContent,
+        ),
+      ),
+    );
+  }
+}
+
+class _ProgrammaticFace extends StatelessWidget {
+  const _ProgrammaticFace({required this.card, required this.theme});
+  final TarotCardData card;
+  final _SuitTheme theme;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [theme.light, theme.dark],
+        ),
+      ),
+      padding: const EdgeInsets.all(8),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            card.number,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+              fontSize: 14,
             ),
-            Center(
-              child: Text(
-                theme.glyph,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 32,
-                  shadows: [Shadow(color: Colors.black26, blurRadius: 3)],
-                ),
-              ),
-            ),
-            Column(
-              children: [
-                Text(
-                  card.nameZh,
+          ),
+          Center(
+            child: Text(theme.glyph,
+                style: const TextStyle(color: Colors.white, fontSize: 32)),
+          ),
+          Column(
+            children: [
+              Text(card.nameZh,
                   textAlign: TextAlign.center,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -200,11 +271,8 @@ class _CardFace extends StatelessWidget {
                     color: Colors.white,
                     fontWeight: FontWeight.w700,
                     fontSize: 13,
-                    shadows: [Shadow(color: Colors.black54, blurRadius: 2)],
-                  ),
-                ),
-                Text(
-                  card.nameEn,
+                  )),
+              Text(card.nameEn,
                   textAlign: TextAlign.center,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -212,12 +280,10 @@ class _CardFace extends StatelessWidget {
                     color: Colors.white.withValues(alpha: 0.85),
                     fontSize: 9,
                     fontStyle: FontStyle.italic,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
+                  )),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -234,13 +300,8 @@ class _CardBack extends StatelessWidget {
       width: width,
       height: height,
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF2D1B4E), Color(0xFF6B4D9C)],
-        ),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFD4AF37), width: 2),
+        border: Border.all(color: const Color(0xFFD4AF37), width: 1.5),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.3),
@@ -249,31 +310,37 @@ class _CardBack extends StatelessWidget {
           ),
         ],
       ),
-      child: Center(
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Container(
-              width: width * 0.55,
-              height: width * 0.55,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: const Color(0xFFD4AF37).withValues(alpha: 0.4),
-                  width: 1,
-                ),
-              ),
-            ),
-            const Text(
-              '✦',
-              style: TextStyle(
-                color: Color(0xFFD4AF37),
-                fontSize: 36,
-                shadows: [Shadow(color: Colors.black54, blurRadius: 4)],
-              ),
-            ),
-          ],
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(9),
+        child: Image.asset(
+          'assets/tarot/_back.png',
+          width: width,
+          height: height,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => _ProgrammaticBack(width: width, height: height),
         ),
+      ),
+    );
+  }
+}
+
+class _ProgrammaticBack extends StatelessWidget {
+  const _ProgrammaticBack({required this.width, required this.height});
+  final double width;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF2D1B4E), Color(0xFF6B4D9C)],
+        ),
+      ),
+      child: const Center(
+        child: Text('✦', style: TextStyle(color: Color(0xFFD4AF37), fontSize: 36)),
       ),
     );
   }

@@ -2,11 +2,24 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/divination.dart';
+import '../../i18n/strings.dart';
 import '../../llm/client.dart';
 import '../../llm/config.dart';
+import '../../storage/app_settings.dart';
 import '../../storage/history.dart';
 import '../../storage/profile.dart';
+import '../widgets/bazi_widget.dart';
+import '../widgets/crystal_ball_widget.dart';
+import '../widgets/hexagram_widget.dart';
+import '../widgets/lenormand_widget.dart';
+import '../widgets/natal_chart_widget.dart';
+import '../widgets/numerology_widget.dart';
+import '../widgets/plum_widget.dart';
+import '../widgets/rune_stone_widget.dart';
+import '../widgets/scroll_widget.dart';
 import '../widgets/tarot_card_widget.dart';
+import '../widgets/yesno_widget.dart';
+import '../widgets/ziwei_chart_widget.dart';
 import 'profiles_screen.dart';
 
 class ReadingScreen extends StatefulWidget {
@@ -79,6 +92,7 @@ class _ReadingScreenState extends State<ReadingScreen> {
   void _autoSaveIfNeeded() {
     if (_saved) return;
     if (_result == null) return;
+    if (!AppSettings.instance.saveHistory) return; // 用户关了历史保存
     _recordId ??= DateTime.now().microsecondsSinceEpoch.toString();
     HistoryStore.append(ReadingRecord(
       id: _recordId!,
@@ -188,6 +202,7 @@ class _ReadingScreenState extends State<ReadingScreen> {
   }
 
   Future<void> _runStream() async {
+    final liveStreaming = AppSettings.instance.streaming;
     setState(() {
       _streaming = true;
       _streamingText = '';
@@ -201,19 +216,23 @@ class _ReadingScreenState extends State<ReadingScreen> {
       final stream = LLMClient.streamChat(
         widget.config,
         _messages
-            // 只把 user/assistant/system 的 content 喂给 LLM (reasoning 不用回灌)
             .map((m) => {'role': m.role, 'content': m.content})
             .toList(),
       );
       await for (final chunk in stream) {
         if (chunk.type == LLMChunkType.reasoning) {
           reasoningBuf.write(chunk.text);
-          setState(() => _streamingReasoning = reasoningBuf.toString());
+          // 用户关了流式 → 不实时刷新 UI, 等结束一次性显示
+          if (liveStreaming) {
+            setState(() => _streamingReasoning = reasoningBuf.toString());
+          }
         } else {
           contentBuf.write(chunk.text);
-          setState(() => _streamingText = contentBuf.toString());
+          if (liveStreaming) {
+            setState(() => _streamingText = contentBuf.toString());
+          }
         }
-        _scrollToBottom();
+        if (liveStreaming) _scrollToBottom();
       }
       setState(() {
         _messages.add(ChatMessage(
@@ -289,13 +308,13 @@ class _ReadingScreenState extends State<ReadingScreen> {
         actions: [
           if (_result != null && !_streaming)
             IconButton(
-              tooltip: '保存',
+              tooltip: S.t('btn.save'),
               onPressed: _saved
                   ? null
                   : () {
                       _autoSaveIfNeeded();
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('已保存到历史')),
+                        SnackBar(content: Text(S.t('reading.saved'))),
                       );
                       setState(() {});
                     },
@@ -410,7 +429,7 @@ class _ReadingScreenState extends State<ReadingScreen> {
                   ),
                 ),
                 const SizedBox(height: 10),
-                Text('正在汲取讯息…',
+                Text(S.t('reading.thinking'),
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     )),
@@ -482,7 +501,7 @@ class _ReadingScreenState extends State<ReadingScreen> {
       ),
       const SizedBox(height: 20),
       if (variants.length > 1) ...[
-        Text('方式', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+        Text(S.t('reading.method'), style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
         const SizedBox(height: 8),
         RadioGroup<String>(
           groupValue: _variantKey,
@@ -519,12 +538,12 @@ class _ReadingScreenState extends State<ReadingScreen> {
       if (inputs.isNotEmpty) ...[
         Row(
           children: [
-            Text('信息', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+            Text(S.t('reading.info'), style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
             const Spacer(),
             TextButton.icon(
               onPressed: _pickProfile,
               icon: const Icon(Icons.contacts_outlined, size: 16),
-              label: const Text('从档案填'),
+              label: Text(S.t('reading.from_profile')),
               style: TextButton.styleFrom(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 visualDensity: VisualDensity.compact,
@@ -550,15 +569,13 @@ class _ReadingScreenState extends State<ReadingScreen> {
         ],
         const SizedBox(height: 6),
       ],
-      Text('你的问题 (可选)', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+      Text(S.t('reading.you_question'), style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
       const SizedBox(height: 8),
       TextField(
         controller: _questionCtl,
         maxLines: 4,
         minLines: 2,
-        decoration: const InputDecoration(
-          hintText: '例如: 我接下来三个月的工作发展方向?',
-        ),
+        decoration: InputDecoration(hintText: S.t('reading.question_hint')),
       ),
       const SizedBox(height: 20),
       SizedBox(
@@ -567,7 +584,7 @@ class _ReadingScreenState extends State<ReadingScreen> {
           onPressed: _streaming ? null : _startReading,
           style: FilledButton.styleFrom(backgroundColor: _accent),
           icon: const Icon(Icons.auto_awesome),
-          label: const Text('开始'),
+          label: Text(S.t('btn.start')),
         ),
       ),
       const SizedBox(height: 16),
@@ -591,9 +608,9 @@ class _ReadingScreenState extends State<ReadingScreen> {
                 minLines: 1,
                 maxLines: 4,
                 enabled: !_streaming,
-                decoration: const InputDecoration(
-                  hintText: '基于结果继续追问…',
-                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: InputDecoration(
+                  hintText: S.t('reading.follow_hint'),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 ),
                 onSubmitted: (_) => _sendFollowup(),
               ),
@@ -663,9 +680,8 @@ class _DivinationCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
-            if (engine.id == 'iching') ..._buildIChing(context, accent),
-            if (result.items.isNotEmpty)
-              ..._buildItems(context, accent),
+            // 引擎专属视觉 dispatch
+            ..._buildEngineVisual(context, accent),
             if (engine.id == 'bazi' || engine.id == 'astrology' || engine.id == 'oracle')
               _buildExtrasOnly(context),
           ],
@@ -674,11 +690,143 @@ class _DivinationCard extends StatelessWidget {
     );
   }
 
+  /// 引擎专属视觉. 每种占卜法走自己的入场动画 + 视觉.
+  List<Widget> _buildEngineVisual(BuildContext context, Color accent) {
+    final id = engine.id;
+    final ex = result.extras;
+    if (id == 'tarot') {
+      // 塔罗已经在 _buildItems 走真图 + 翻牌动画
+      return _buildItems(context, accent);
+    }
+    if (id == 'lenormand') {
+      return [_LenormandRow(result: result)];
+    }
+    if (id == 'iching') return _buildIChing(context, accent);
+    if (id == 'plum') {
+      return [
+        PlumNumberDrop(
+          n1: (ex['numbers'] as List)[0] as int,
+          n2: (ex['numbers'] as List)[1] as int,
+          n3: (ex['numbers'] as List)[2] as int,
+          upperTrigram: ex['upperTrigram'] as String,
+          lowerTrigram: ex['lowerTrigram'] as String,
+          changingYao: ex['changingYao'] as int,
+          accent: accent,
+        ),
+        const SizedBox(height: 4),
+        ..._buildIChing(context, accent),
+      ];
+    }
+    if (id == 'bazi') {
+      final p = (ex['pillars'] as Map);
+      return [
+        BaziPillars(
+          year: p['year'] as String,
+          month: p['month'] as String,
+          day: p['day'] as String,
+          hour: (p['hour'] as String).isNotEmpty ? p['hour'] as String : '—',
+          dayMaster: ex['dayMaster'] as String,
+          hourKnown: (p['hour'] as String).isNotEmpty,
+        ),
+      ];
+    }
+    if (id == 'ziwei') return _buildZiWei(context, accent);
+    if (id == 'astrology') {
+      final planets = (ex['planets'] as List).cast<Map<String, dynamic>>();
+      // houseCusps 是 list, 拿 cusps[1..12] + ascmc; 但我们存的是 result.houses
+      final houses = (ex['houses'] as List).cast<Map>();
+      final cusps = <double>[0.0]; // index 0 unused
+      for (var i = 1; i <= 12; i++) {
+        cusps.add(houses[i - 1]['cuspLongitude'] as double);
+      }
+      final aspects = (ex['aspects'] as List).cast<Map<String, dynamic>>();
+      return [
+        Center(child: NatalChartView(planets: planets, houseCusps: cusps, aspects: aspects)),
+        const SizedBox(height: 10),
+        const NatalChartLegend(),
+        const SizedBox(height: 6),
+        Text(
+          '上升 ${ex["ascendant"]}  ·  中天 ${ex["mc"]}',
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ];
+    }
+    if (id == 'numerology') {
+      final it = result.items.first;
+      return [
+        LifePathReveal(
+          lifePath: it.extra['value'] as int,
+          archetype: ex['archetype'] as String,
+          keywords: it.keywords,
+          description: it.subtitle ?? '',
+          accent: accent,
+        ),
+      ];
+    }
+    if (id == 'runes') {
+      return [_RuneRow(result: result)];
+    }
+    if (id == 'ogham') {
+      return [_OghamRow(result: result)];
+    }
+    if (id == 'yesno') {
+      final it = result.items.first;
+      return [
+        YesNoBigReveal(
+          tendency: ex['tendency'] as String,
+          method: ex['method'] as String,
+          detail: it.subtitle,
+        ),
+      ];
+    }
+    if (id == 'biblio') {
+      return [
+        ScrollReveal(
+          reference: ex['reference'] as String,
+          book: ex['book'] as String,
+        ),
+      ];
+    }
+    if (id == 'oracle') {
+      return [
+        CrystalBall(
+          mode: result.variantName,
+          description: (ex['modeDescription'] as String?) ?? '',
+        ),
+      ];
+    }
+    // 兜底
+    return _buildItems(context, accent);
+  }
+
   List<Widget> _buildIChing(BuildContext context, Color accent) {
     final theme = Theme.of(context);
     final ex = result.extras;
     final hasDerived = ex.containsKey('derivedNumber');
+    // 六爻是 changingLines list, 梅花是 changingYao int
+    List<int> changing = const [];
+    if (ex['changingLines'] is List) {
+      changing = (ex['changingLines'] as List).cast<int>();
+    } else if (ex['changingYao'] is int) {
+      changing = [ex['changingYao'] as int];
+    }
     return [
+      // 视觉化卦象
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: HexagramTransition(
+          accent: accent,
+          originalBinary: ex['originalBinary'] as String,
+          derivedBinary: hasDerived ? ex['derivedBinary'] as String : null,
+          changingLines: changing,
+          originalLabel: '本卦 · ${ex["originalName"]}',
+          derivedLabel: hasDerived ? '变卦 · ${ex["derivedName"]}' : null,
+        ),
+      ),
+      const SizedBox(height: 6),
       Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
@@ -708,8 +856,29 @@ class _DivinationCard extends StatelessWidget {
           ],
         ),
       ),
-      const SizedBox(height: 10),
-      ...result.items.reversed.map((it) => _itemRow(context, it, accent)),
+    ];
+  }
+
+  List<Widget> _buildZiWei(BuildContext context, Color accent) {
+    final theme = Theme.of(context);
+    final ex = result.extras;
+    final palaces = (ex['palaces'] as List).cast<Map<String, dynamic>>();
+    final center = '${ex["mingPalace"]}\n${ex["bureau"]}\n紫微在${ex["ziWeiZhi"]}\n'
+        '${ex["yearGanZhi"]} · ${ex["gender"] ?? ""}';
+    return [
+      ZiWeiChartWidget(
+        palaces: palaces,
+        centerInfo: center,
+        accent: accent,
+      ),
+      const SizedBox(height: 8),
+      Text(
+        '★ = 命宫    "身" = 身宫    金色字 = 传统视为吉星的主星',
+        textAlign: TextAlign.center,
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+      ),
     ];
   }
 
@@ -816,7 +985,7 @@ class _ChatBubble extends StatelessWidget {
     Clipboard.setData(ClipboardData(text: message.content));
     HapticFeedback.selectionClick();
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('已复制'), duration: Duration(seconds: 1)),
+      SnackBar(content: Text(S.t('reading.copied')), duration: const Duration(seconds: 1)),
     );
   }
 
@@ -1083,6 +1252,152 @@ class _TagEditor extends StatelessWidget {
           visualDensity: VisualDensity.compact,
           onPressed: () => _addTag(context),
         ),
+      ],
+    );
+  }
+}
+
+class _LenormandRow extends StatelessWidget {
+  const _LenormandRow({required this.result});
+  final DivinationResult result;
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cards = result.items;
+    final isSingle = cards.length <= 1;
+    final cardW = isSingle ? 140.0 : 92.0;
+    final cardH = isSingle ? 220.0 : 145.0;
+    return Column(
+      children: [
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                for (var i = 0; i < cards.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 10),
+                  LenormandCardWidget(
+                    width: cardW,
+                    height: cardH,
+                    flipDelayMs: 250 + i * 350,
+                    position: cards[i].position,
+                    card: LenormandCardData(
+                      number: (cards[i].extra['number'] as int?) ?? 0,
+                      nameZh: cards[i].name.replaceAll(RegExp(r'^\d+\.\s*'), ''),
+                      nameEn: cards[i].subtitle ?? '',
+                      keywords: cards[i].keywords,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        for (final c in cards)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 72,
+                  child: Text(c.position,
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      )),
+                ),
+                Expanded(
+                  child: Text('${c.name}\n${c.keywords.join(" · ")}',
+                      style: theme.textTheme.bodySmall?.copyWith(height: 1.5)),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _RuneRow extends StatelessWidget {
+  const _RuneRow({required this.result});
+  final DivinationResult result;
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final items = result.items;
+    return Column(
+      children: [
+        Wrap(
+          spacing: 10, runSpacing: 12,
+          alignment: WrapAlignment.center,
+          children: [
+            for (var i = 0; i < items.length; i++)
+              StoneCardWidget(
+                glyph: (items[i].extra['glyph'] as String?) ?? items[i].name.split(' ').first,
+                name: items[i].name.split('  ').last,
+                subtitle: items[i].subtitle,
+                position: items[i].position,
+                reversed: items[i].orientation == '逆位',
+                accentDark: const Color(0xFF5C534A),
+                accentLight: const Color(0xFFA89B8C),
+                revealDelayMs: 200 + i * 350,
+              ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        for (final c in items)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child: Text(
+              '${c.position}: ${c.keywords.join(" · ")}',
+              style: theme.textTheme.bodySmall?.copyWith(height: 1.5),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _OghamRow extends StatelessWidget {
+  const _OghamRow({required this.result});
+  final DivinationResult result;
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final items = result.items;
+    return Column(
+      children: [
+        Wrap(
+          spacing: 10, runSpacing: 12,
+          alignment: WrapAlignment.center,
+          children: [
+            for (var i = 0; i < items.length; i++)
+              StoneCardWidget(
+                glyph: (items[i].extra['glyph'] as String?) ?? items[i].name.split(' ').first,
+                name: items[i].name.split('  ').last,
+                subtitle: items[i].subtitle,
+                position: items[i].position,
+                accentDark: const Color(0xFF3E5538),
+                accentLight: const Color(0xFF8FA887),
+                wood: true,
+                revealDelayMs: 200 + i * 350,
+              ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        for (final c in items)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child: Text(
+              '${c.position}: ${c.keywords.join(" · ")}',
+              style: theme.textTheme.bodySmall?.copyWith(height: 1.5),
+            ),
+          ),
       ],
     );
   }

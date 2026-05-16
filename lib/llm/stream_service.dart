@@ -8,11 +8,15 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../storage/app_settings.dart';
+
 class LlmStreamService {
   static const _channel = MethodChannel('com.divine.divine/llm_stream_service');
 
   static Future<void> start() async {
     if (!_supported) return;
+    // 用户在设置里关了通知, 就不启前台服务 (Android 切走风险自负)
+    if (!AppSettings.instance.fgNotification) return;
     try {
       await _channel.invokeMethod<bool>('start');
     } catch (_) {

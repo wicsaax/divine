@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../i18n/strings.dart';
 import '../../storage/profile.dart';
 
 class ProfilesScreen extends StatefulWidget {
@@ -60,10 +61,10 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.pickMode ? '选择档案' : '出生档案'),
+        title: Text(widget.pickMode ? S.t('profile.pick_title') : S.t('profile.title')),
         actions: [
           IconButton(
-            tooltip: '新建',
+            tooltip: S.t('btn.new'),
             onPressed: () => _edit(),
             icon: const Icon(Icons.add),
           ),

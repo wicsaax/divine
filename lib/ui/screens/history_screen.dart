@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/divination.dart';
+import '../../i18n/strings.dart';
 import '../../llm/config.dart';
 import '../../storage/history.dart';
 import 'reading_screen.dart';
@@ -171,13 +172,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('历史'),
+        title: Text(S.t('history.title')),
         actions: [
           FutureBuilder<List<ReadingRecord>>(
             future: _future,
             builder: (_, snap) {
               return IconButton(
-                tooltip: '导出当前筛选',
+                tooltip: S.t('btn.export'),
                 onPressed: snap.hasData
                     ? () => _exportFiltered(_filter(snap.data!.reversed.toList()))
                     : null,
@@ -186,7 +187,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
             },
           ),
           IconButton(
-            tooltip: '清空',
+            tooltip: S.t('btn.clear'),
             onPressed: _confirmClear,
             icon: const Icon(Icons.delete_outline),
           ),
@@ -209,7 +210,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     color: theme.colorScheme.onSurfaceVariant,
                   )),
                   const SizedBox(height: 12),
-                  Text('还没有历史记录',
+                  Text(S.t('history.empty_title'),
                       style: theme.textTheme.titleMedium?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       )),
@@ -217,7 +218,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 32),
                     child: Text(
-                      '完成一次占卜后会自动保存到这里, 方便日后回看.',
+                      S.t('history.empty_sub'),
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
@@ -261,7 +262,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 child: TextField(
                   controller: _searchCtl,
                   decoration: InputDecoration(
-                    hintText: '搜索问题 / 关键词 / 解读内容',
+                    hintText: S.t('history.search_hint'),
                     prefixIcon: const Icon(Icons.search, size: 20),
                     suffixIcon: _searchQuery.isEmpty
                         ? null
@@ -284,7 +285,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   children: [
-                    _filterChip('全部', _engineFilter == null,
+                    _filterChip(S.t('history.all'), _engineFilter == null,
                         () => setState(() => _engineFilter = null),
                         count: all.length),
                     ...usedEngines.map((e) => _filterChip(
@@ -330,7 +331,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
                 child: Text(
-                  '${filtered.length} 条结果',
+                  S.t('history.results').replaceAll('{n}', '${filtered.length}'),
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
@@ -339,7 +340,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
               Expanded(
                 child: filtered.isEmpty
                     ? Center(
-                        child: Text('没有匹配的历史',
+                        child: Text(S.t('history.no_match'),
                             style: theme.textTheme.bodyMedium?.copyWith(
                               color: theme.colorScheme.onSurfaceVariant,
                             )),
