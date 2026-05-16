@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/divination.dart';
 import '../../llm/config.dart';
 import 'history_screen.dart';
+import 'profiles_screen.dart';
 import 'reading_screen.dart';
 import 'settings_screen.dart';
 
@@ -27,6 +28,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _openHistory() async {
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const HistoryScreen()),
+    );
+  }
+
+  Future<void> _openProfiles() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const ProfilesScreen()),
     );
   }
 
@@ -74,6 +81,11 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: '档案',
+            onPressed: _openProfiles,
+            icon: const Icon(Icons.contacts_outlined),
+          ),
           IconButton(
             tooltip: '历史',
             onPressed: _openHistory,

@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:divine/core/bazi.dart';
 import 'package:divine/core/biblio.dart';
 import 'package:divine/core/generic.dart';
 import 'package:divine/core/iching.dart';
@@ -110,6 +111,29 @@ void main() {
         final r = e.perform(variantKey: v.key);
         expect(r.variantName, v.name);
       }
+    });
+
+    test('bazi computes four pillars from real lunar calendar', () {
+      final e = BaziEngine();
+      final r = e.perform(variantKey: 'overall', inputs: {
+        'birthdate': '1990-06-15',
+        'birthtime': '14:30',
+        'gender': '男',
+      });
+      expect(r.items.length, 4);
+      final pillars = r.extras['pillars'] as Map;
+      expect((pillars['year'] as String).length, 2);
+      expect((pillars['day'] as String).length, 2);
+      expect((r.extras['dayMaster'] as String).length, 1);
+    });
+
+    test('bazi handles unknown birth time', () {
+      final e = BaziEngine();
+      final r = e.perform(variantKey: 'overall', inputs: {
+        'birthdate': '1990-06-15',
+      });
+      final pillars = r.extras['pillars'] as Map;
+      expect(pillars['hour'], '');
     });
   });
 }

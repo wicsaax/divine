@@ -5,6 +5,8 @@ import '../../core/divination.dart';
 import '../../llm/client.dart';
 import '../../llm/config.dart';
 import '../../storage/history.dart';
+import '../../storage/profile.dart';
+import 'profiles_screen.dart';
 
 class ReadingScreen extends StatefulWidget {
   const ReadingScreen({
@@ -40,6 +42,8 @@ class _ReadingScreenState extends State<ReadingScreen> {
   String _streamingReasoning = '';
   String? _error;
   bool _saved = false;
+  String? _recordId;        // 同一次 reading 反复保存用同一个 id (避免历史里重复)
+  List<String> _tags = [];
 
   Color get _accent => widget.engine.accentColorHex != null
       ? Color(widget.engine.accentColorHex!)
@@ -54,6 +58,8 @@ class _ReadingScreenState extends State<ReadingScreen> {
       _questionCtl.text = widget.replay!.question;
       _messages.addAll(widget.replay!.messages);
       _saved = true;
+      _recordId = widget.replay!.id;
+      _tags = List.of(widget.replay!.tags);
     }
   }
 
@@ -72,14 +78,37 @@ class _ReadingScreenState extends State<ReadingScreen> {
   void _autoSaveIfNeeded() {
     if (_saved) return;
     if (_result == null) return;
+    _recordId ??= DateTime.now().microsecondsSinceEpoch.toString();
     HistoryStore.append(ReadingRecord(
+      id: _recordId!,
       engineId: widget.engine.id,
       engineName: widget.engine.nameZh,
       question: _questionCtl.text.trim(),
       result: _result!,
       messages: _messages,
+      tags: _tags,
     ));
     _saved = true;
+  }
+
+  Future<void> _pickProfile() async {
+    final p = await Navigator.of(context).push<BirthProfile>(
+      MaterialPageRoute(builder: (_) => const ProfilesScreen(pickMode: true)),
+    );
+    if (p == null) return;
+    final mapped = p.toEngineInputs();
+    setState(() {
+      for (final e in mapped.entries) {
+        if (_inputCtls.containsKey(e.key)) {
+          _inputCtls[e.key]!.text = e.value;
+        }
+      }
+    });
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已填入「${p.name}」的档案')),
+      );
+    }
   }
 
   String? _validateInputs() {
@@ -291,7 +320,18 @@ class _ReadingScreenState extends State<ReadingScreen> {
       widgets.addAll(_buildSetupSection(theme));
     } else {
       widgets.add(_DivinationCard(engine: widget.engine, result: _result!));
-      widgets.add(const SizedBox(height: 16));
+      widgets.add(const SizedBox(height: 12));
+      widgets.add(_TagEditor(
+        tags: _tags,
+        accent: _accent,
+        onChanged: (newTags) {
+          setState(() {
+            _tags = newTags;
+            _saved = false;
+          });
+        },
+      ));
+      widgets.add(const SizedBox(height: 12));
 
       // 还没开始解读 + 有可独立呈现的结果 → 显示"解读"按钮
       if (_messages.isEmpty && !_streaming) {
@@ -472,8 +512,22 @@ class _ReadingScreenState extends State<ReadingScreen> {
         const SizedBox(height: 16),
       ],
       if (inputs.isNotEmpty) ...[
-        Text('信息', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
-        const SizedBox(height: 8),
+        Row(
+          children: [
+            Text('信息', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+            const Spacer(),
+            TextButton.icon(
+              onPressed: _pickProfile,
+              icon: const Icon(Icons.contacts_outlined, size: 16),
+              label: const Text('从档案填'),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
         for (final f in inputs) ...[
           Padding(
             padding: const EdgeInsets.only(bottom: 10),
@@ -953,6 +1007,74 @@ class _ContinueButton extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// 标签编辑器: 显示现有标签 chip (X 可删), 加一个 "+ 加标签" chip 弹输入框.
+class _TagEditor extends StatelessWidget {
+  const _TagEditor({
+    required this.tags,
+    required this.accent,
+    required this.onChanged,
+  });
+  final List<String> tags;
+  final Color accent;
+  final ValueChanged<List<String>> onChanged;
+
+  Future<void> _addTag(BuildContext context) async {
+    final ctl = TextEditingController();
+    final tag = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('添加标签'),
+        content: TextField(
+          controller: ctl,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: '例: 事业 / 感情 / 2026 / 自己',
+          ),
+          onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, ctl.text.trim()),
+            child: const Text('添加'),
+          ),
+        ],
+      ),
+    );
+    if (tag != null && tag.isNotEmpty && !tags.contains(tag)) {
+      onChanged([...tags, tag]);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        Icon(Icons.local_offer_outlined, size: 16,
+            color: theme.colorScheme.onSurfaceVariant),
+        for (final t in tags)
+          Chip(
+            label: Text(t, style: const TextStyle(fontSize: 12)),
+            visualDensity: VisualDensity.compact,
+            backgroundColor: accent.withValues(alpha: 0.15),
+            side: BorderSide(color: accent.withValues(alpha: 0.3)),
+            onDeleted: () => onChanged(tags.where((x) => x != t).toList()),
+            deleteIconColor: theme.colorScheme.onSurfaceVariant,
+          ),
+        ActionChip(
+          label: const Text('+ 标签', style: TextStyle(fontSize: 12)),
+          visualDensity: VisualDensity.compact,
+          onPressed: () => _addTag(context),
+        ),
+      ],
     );
   }
 }

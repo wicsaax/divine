@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../core/divination.dart';
 import '../../llm/config.dart';
@@ -19,6 +20,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   final _searchCtl = TextEditingController();
   String _searchQuery = '';
   String? _engineFilter; // null = 全部
+  final Set<String> _tagFilter = {}; // 空 = 不按标签过滤; 非空 = 命中任一即匹配
 
   Future<void> _refresh() async {
     setState(() => _future = HistoryStore.loadAll());
@@ -59,13 +61,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
   }
 
-  /// 匹配关键词: 问题, 引擎名, 占卜方式, 助手回复全文.
+  /// 匹配关键词: 问题, 引擎名, 占卜方式, 助手回复全文, 标签.
   bool _matches(ReadingRecord r, String q) {
     if (q.isEmpty) return true;
     final lower = q.toLowerCase();
     if (r.question.toLowerCase().contains(lower)) return true;
     if (r.engineName.toLowerCase().contains(lower)) return true;
     if (r.result.variantName.toLowerCase().contains(lower)) return true;
+    for (final t in r.tags) {
+      if (t.toLowerCase().contains(lower)) return true;
+    }
     for (final m in r.messages) {
       if (m.role == 'assistant' && m.content.toLowerCase().contains(lower)) return true;
     }
@@ -75,8 +80,84 @@ class _HistoryScreenState extends State<HistoryScreen> {
   List<ReadingRecord> _filter(List<ReadingRecord> all) {
     return all.where((r) {
       if (_engineFilter != null && r.engineId != _engineFilter) return false;
+      if (_tagFilter.isNotEmpty && !r.tags.any(_tagFilter.contains)) return false;
       return _matches(r, _searchQuery);
     }).toList();
+  }
+
+  Future<void> _exportFiltered(List<ReadingRecord> records) async {
+    if (records.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('没有可导出的记录')),
+      );
+      return;
+    }
+    final buf = StringBuffer();
+    buf.writeln('# divine 占卜记录');
+    buf.writeln();
+    buf.writeln('导出时间: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}');
+    buf.writeln('记录数: ${records.length}');
+    buf.writeln();
+    final fmt = DateFormat('yyyy-MM-dd HH:mm');
+    for (final r in records) {
+      buf.writeln('---');
+      buf.writeln();
+      buf.writeln('## ${fmt.format(r.ts)} · ${r.engineName} · ${r.result.variantName}');
+      buf.writeln();
+      if (r.question.isNotEmpty) {
+        buf.writeln('**问题**: ${r.question}');
+        buf.writeln();
+      }
+      if (r.tags.isNotEmpty) {
+        buf.writeln('**标签**: ${r.tags.join(" · ")}');
+        buf.writeln();
+      }
+      if (r.result.items.isNotEmpty) {
+        buf.writeln('### 抽到的结果');
+        buf.writeln();
+        for (final it in r.result.items) {
+          final ori = it.orientation.isNotEmpty ? ' (${it.orientation})' : '';
+          final kw = it.keywords.isNotEmpty ? ' — ${it.keywords.join(" / ")}' : '';
+          buf.writeln('- **${it.position}**: ${it.name}$ori$kw');
+        }
+        buf.writeln();
+      }
+      final assistantMsgs = r.messages.where((m) => m.role == 'assistant');
+      if (assistantMsgs.isNotEmpty) {
+        buf.writeln('### AI 解读');
+        buf.writeln();
+        for (final m in assistantMsgs) {
+          if (m.reasoning.isNotEmpty) {
+            buf.writeln('> [思考过程]');
+            for (final line in m.reasoning.split('\n')) {
+              buf.writeln('> $line');
+            }
+            buf.writeln('>');
+          }
+          buf.writeln(m.content);
+          buf.writeln();
+        }
+      }
+      final followUps = r.messages.where((m) => m.role == 'user').skip(1).toList();
+      if (followUps.isNotEmpty) {
+        buf.writeln('### 追问');
+        buf.writeln();
+        for (final u in followUps) {
+          buf.writeln('- ${u.content}');
+        }
+        buf.writeln();
+      }
+    }
+    final text = buf.toString();
+    try {
+      await Share.share(text, subject: 'divine 占卜记录 (${records.length} 条)');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('分享失败: $e')),
+        );
+      }
+    }
   }
 
   @override
@@ -92,6 +173,18 @@ class _HistoryScreenState extends State<HistoryScreen> {
       appBar: AppBar(
         title: const Text('历史'),
         actions: [
+          FutureBuilder<List<ReadingRecord>>(
+            future: _future,
+            builder: (_, snap) {
+              return IconButton(
+                tooltip: '导出当前筛选',
+                onPressed: snap.hasData
+                    ? () => _exportFiltered(_filter(snap.data!.reversed.toList()))
+                    : null,
+                icon: const Icon(Icons.ios_share),
+              );
+            },
+          ),
           IconButton(
             tooltip: '清空',
             onPressed: _confirmClear,
@@ -148,6 +241,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
             ..sort((a, b) => (engineCount[b.id] ?? 0)
                 .compareTo(engineCount[a.id] ?? 0));
 
+          // 全部用过的标签 (按次数排)
+          final tagCount = <String, int>{};
+          for (final r in all) {
+            for (final t in r.tags) {
+              tagCount[t] = (tagCount[t] ?? 0) + 1;
+            }
+          }
+          final usedTags = tagCount.keys.toList()
+            ..sort((a, b) => (tagCount[b] ?? 0).compareTo(tagCount[a] ?? 0));
+
           final filtered = _filter(all);
 
           return Column(
@@ -194,6 +297,34 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   ],
                 ),
               ),
+              // 标签过滤
+              if (usedTags.isNotEmpty)
+                SizedBox(
+                  height: 40,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6, top: 8),
+                        child: Icon(Icons.local_offer_outlined,
+                            size: 16, color: theme.colorScheme.onSurfaceVariant),
+                      ),
+                      ...usedTags.map((t) => _filterChip(
+                            t,
+                            _tagFilter.contains(t),
+                            () => setState(() {
+                              if (_tagFilter.contains(t)) {
+                                _tagFilter.remove(t);
+                              } else {
+                                _tagFilter.add(t);
+                              }
+                            }),
+                            count: tagCount[t] ?? 0,
+                          )),
+                    ],
+                  ),
+                ),
               const Divider(height: 1),
               // 结果计数
               Padding(
@@ -290,38 +421,97 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final accent = engine?.accentColorHex != null
         ? Color(engine!.accentColorHex!)
         : theme.colorScheme.primary;
-    return ListTile(
-      leading: Container(
-        width: 40, height: 40,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: accent.withValues(alpha: 0.2),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Text(emoji, style: const TextStyle(fontSize: 22)),
+    return Dismissible(
+      key: ValueKey(rec.id),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        color: theme.colorScheme.errorContainer,
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        child: Icon(Icons.delete_outline,
+            color: theme.colorScheme.onErrorContainer),
       ),
-      title: Text(
-        rec.question.isEmpty ? '(无具体问题)' : rec.question,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.bodyMedium?.copyWith(
-          fontWeight: FontWeight.w500,
-          color: rec.question.isEmpty
-              ? theme.colorScheme.onSurfaceVariant
-              : theme.colorScheme.onSurface,
+      confirmDismiss: (_) async {
+        return await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text('删除这条记录?'),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+                  FilledButton.tonal(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: const Text('删除'),
+                  ),
+                ],
+              ),
+            ) ??
+            false;
+      },
+      onDismissed: (_) async {
+        await HistoryStore.deleteById(rec.id);
+        _refresh();
+      },
+      child: ListTile(
+        leading: Container(
+          width: 40, height: 40,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: accent.withValues(alpha: 0.2),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text(emoji, style: const TextStyle(fontSize: 22)),
         ),
-      ),
-      subtitle: Padding(
-        padding: const EdgeInsets.only(top: 2),
-        child: Text(
-          '${rec.engineName}  ·  ${_dateFmt.format(rec.ts)}\n$summary',
-          maxLines: 2,
+        title: Text(
+          rec.question.isEmpty ? '(无具体问题)' : rec.question,
+          maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.bodySmall?.copyWith(height: 1.5),
+          style: theme.textTheme.bodyMedium?.copyWith(
+            fontWeight: FontWeight.w500,
+            color: rec.question.isEmpty
+                ? theme.colorScheme.onSurfaceVariant
+                : theme.colorScheme.onSurface,
+          ),
         ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                '${rec.engineName}  ·  ${_dateFmt.format(rec.ts)}\n$summary',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(height: 1.5),
+              ),
+            ),
+            if (rec.tags.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Wrap(
+                  spacing: 4,
+                  runSpacing: 4,
+                  children: rec.tags
+                      .map((t) => Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: accent.withValues(alpha: 0.18),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(t,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  fontSize: 11,
+                                  color: theme.colorScheme.onSurface,
+                                )),
+                          ))
+                      .toList(),
+                ),
+              ),
+          ],
+        ),
+        isThreeLine: true,
+        onTap: () => _openDetail(rec),
       ),
-      isThreeLine: true,
-      onTap: () => _openDetail(rec),
     );
   }
 }

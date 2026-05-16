@@ -43,32 +43,52 @@ class ChatMessage {
 }
 
 class ReadingRecord {
+  final String id;
   final DateTime ts;
   final String engineId;
   final String engineName;
   final String question;
   final DivinationResult result;
   final List<ChatMessage> messages;
+  final List<String> tags;
 
   ReadingRecord({
+    String? id,
     DateTime? ts,
     required this.engineId,
     required this.engineName,
     required this.question,
     required this.result,
     required this.messages,
-  }) : ts = ts ?? DateTime.now();
+    this.tags = const [],
+  })  : ts = ts ?? DateTime.now(),
+        id = id ?? DateTime.now().microsecondsSinceEpoch.toString();
+
+  ReadingRecord copyWith({List<String>? tags, List<ChatMessage>? messages}) =>
+      ReadingRecord(
+        id: id,
+        ts: ts,
+        engineId: engineId,
+        engineName: engineName,
+        question: question,
+        result: result,
+        messages: messages ?? this.messages,
+        tags: tags ?? this.tags,
+      );
 
   Map<String, dynamic> toJson() => {
+        'id': id,
         'ts': ts.toIso8601String(),
         'engineId': engineId,
         'engineName': engineName,
         'question': question,
         'result': result.toJson(),
         'messages': messages.map((m) => m.toJson()).toList(),
+        if (tags.isNotEmpty) 'tags': tags,
       };
 
   factory ReadingRecord.fromJson(Map<String, dynamic> j) => ReadingRecord(
+        id: (j['id'] as String?) ?? (j['ts'] as String), // 老数据用 ts 当 id
         ts: DateTime.parse(j['ts'] as String),
         engineId: j['engineId'] as String,
         engineName: j['engineName'] as String,
@@ -77,6 +97,7 @@ class ReadingRecord {
         messages: (j['messages'] as List)
             .map((m) => ChatMessage.fromJson(m as Map<String, dynamic>))
             .toList(),
+        tags: ((j['tags'] as List?) ?? const []).cast<String>(),
       );
 }
 
@@ -95,12 +116,26 @@ class HistoryStore {
     }
   }
 
+  /// 写入: 如果已有同 id 的记录则替换, 否则追加.
   static Future<void> append(ReadingRecord r) async {
     final all = await loadAll();
-    all.add(r);
+    final i = all.indexWhere((x) => x.id == r.id);
+    if (i >= 0) {
+      all[i] = r;
+    } else {
+      all.add(r);
+    }
     if (all.length > _kHistoryLimit) {
       all.removeRange(0, all.length - _kHistoryLimit);
     }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kHistoryKey,
+        jsonEncode(all.map((e) => e.toJson()).toList()));
+  }
+
+  static Future<void> deleteById(String id) async {
+    final all = await loadAll();
+    all.removeWhere((r) => r.id == id);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kHistoryKey,
         jsonEncode(all.map((e) => e.toJson()).toList()));
