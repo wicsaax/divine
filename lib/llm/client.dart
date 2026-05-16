@@ -29,6 +29,8 @@ class LLMException implements Exception {
 
 class LLMClient {
   /// 发一个最小请求验证 endpoint/key/model 三件套配的对.
+  /// 推理模型 (deepseek-v4-pro / o1 等) 会先输出 reasoning_content 再 content,
+  /// 所以 max_tokens 给足够大, 并把 reasoning_content 也视为"连通"的证据.
   static Future<String> testConnection(LLMConfig cfg) async {
     if (!cfg.isReady) {
       throw LLMException('endpoint/key/model 至少有一项未填.');
@@ -40,7 +42,7 @@ class LLMClient {
         {'role': 'user', 'content': '回 4 个字: 连接正常.'}
       ],
       'temperature': 0.0,
-      'max_tokens': 64,
+      'max_tokens': 1024, // 推理模型要留出思考空间, 1024 够推理完 + 给出答案
       'stream': false,
     });
     final client = http.Client();
@@ -52,7 +54,7 @@ class LLMClient {
                 'Content-Type': 'application/json',
               },
               body: body)
-          .timeout(const Duration(seconds: 30));
+          .timeout(const Duration(seconds: 60));
       if (resp.statusCode != 200) {
         throw LLMException('HTTP ${resp.statusCode}: ${utf8.decode(resp.bodyBytes)}');
       }
@@ -61,10 +63,22 @@ class LLMClient {
       if (choices == null || choices.isEmpty) {
         throw LLMException('响应里没有 choices');
       }
-      final msg = (choices.first as Map)['message'] as Map?;
+      final first = choices.first as Map;
+      final msg = first['message'] as Map?;
       final content = msg?['content'];
-      if (content is String && content.isNotEmpty) return content.trim();
-      throw LLMException('响应中没有 content');
+      final reasoning = msg?['reasoning_content'];
+      final finishReason = first['finish_reason'];
+      if (content is String && content.trim().isNotEmpty) {
+        return '连接成功: ${content.trim()}';
+      }
+      // content 为空, 但推理模型若有 reasoning_content 也算连通
+      if (reasoning is String && reasoning.trim().isNotEmpty) {
+        return '连接成功 (推理模型还在思考中, 但通路正常). finish=$finishReason';
+      }
+      throw LLMException(
+        '响应中没有 content (finish_reason=$finishReason). '
+        '若是推理模型可能 max_tokens 不够, 已设 1024 应该够.',
+      );
     } finally {
       client.close();
     }

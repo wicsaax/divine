@@ -44,6 +44,18 @@ jobs:
           flutter-version: '3.41.9'
           cache: true
 
+      # 如果配了 ANDROID_KEYSTORE_BASE64 等 secret, 解码出 keystore 并用 release 签名.
+      # 没配则保持 debug 签名 (build.gradle.kts 里有回退).
+      - name: Decode keystore (if release signing configured)
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > $RUNNER_TEMP/divine-release.jks
+          echo "DIVINE_KEYSTORE_PATH=$RUNNER_TEMP/divine-release.jks" >> $GITHUB_ENV
+          echo "DIVINE_KEYSTORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
+          echo "DIVINE_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}" >> $GITHUB_ENV
+          echo "DIVINE_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}" >> $GITHUB_ENV
+          echo "✓ Release signing configured"
+
       - run: flutter pub get
       - run: flutter build apk --release
 

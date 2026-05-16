@@ -43,3 +43,9 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Android release signing — 永远不要 commit
+*.jks
+*.keystore
+android/key.properties
+key.properties
