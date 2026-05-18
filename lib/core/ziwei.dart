@@ -150,6 +150,99 @@ class _StarPlacement {
   const _StarPlacement(this.name, this.zhi);
 }
 
+// ====================== 六吉星 ======================
+
+/// 左辅: 寅起正月顺数 (实际起辰), 落到生月.
+int _zuoFuZhi(int lunarMonth) => (3 + lunarMonth) % 12;
+
+/// 右弼: 戌起正月逆数, 落到生月.
+int _youBiZhi(int lunarMonth) => ((11 - lunarMonth) % 12 + 12) % 12;
+
+/// 天魁 (阳贵人) - 按年干.
+const Map<int, int> _tianKuiByGan = {
+  0: 1, 1: 0, 2: 11, 3: 11, 4: 1,
+  5: 0, 6: 1, 7: 6, 8: 3, 9: 3,
+};
+
+/// 天钺 (阴贵人) - 按年干.
+const Map<int, int> _tianYueByGan = {
+  0: 7, 1: 8, 2: 9, 3: 9, 4: 7,
+  5: 8, 6: 7, 7: 2, 8: 5, 9: 5,
+};
+
+/// 文昌: 戌起子时, 逆数到生时.
+int _wenChangZhi(int hourZhi) => ((10 - hourZhi) % 12 + 12) % 12;
+
+/// 文曲: 辰起子时, 顺数到生时.
+int _wenQuZhi(int hourZhi) => (4 + hourZhi) % 12;
+
+// ====================== 六煞星 ======================
+
+/// 禄存 (按年干), 用于推算擎羊陀罗.
+const Map<int, int> _luCunByGan = {
+  0: 2, 1: 3, 2: 5, 3: 6, 4: 5,
+  5: 6, 6: 8, 7: 9, 8: 11, 9: 0,
+};
+
+/// 擎羊 = 禄存 + 1 (顺).
+int _qingYangZhi(int yearGan) => (_luCunByGan[yearGan]! + 1) % 12;
+
+/// 陀罗 = 禄存 - 1 (逆).
+int _tuoLuoZhi(int yearGan) => ((_luCunByGan[yearGan]! - 1) % 12 + 12) % 12;
+
+/// 火星起点 (按年支三合): 寅午戌→丑, 申子辰→寅, 巳酉丑→卯, 亥卯未→酉.
+int _huoXingStart(int yearZhi) {
+  if ([2, 6, 10].contains(yearZhi)) return 1;
+  if ([8, 0, 4].contains(yearZhi)) return 2;
+  if ([5, 9, 1].contains(yearZhi)) return 3;
+  return 9;
+}
+
+/// 铃星起点 (按年支三合).
+int _lingXingStart(int yearZhi) {
+  if ([2, 6, 10].contains(yearZhi)) return 3;
+  return 10;
+}
+
+/// 火星 = 起点 + 时支 (顺数).
+int _huoXingZhi(int yearZhi, int hourZhi) =>
+    (_huoXingStart(yearZhi) + hourZhi) % 12;
+
+int _lingXingZhi(int yearZhi, int hourZhi) =>
+    (_lingXingStart(yearZhi) + hourZhi) % 12;
+
+/// 地空: 亥起子时逆数.
+int _diKongZhi(int hourZhi) => ((11 - hourZhi) % 12 + 12) % 12;
+
+/// 地劫: 亥起子时顺数.
+int _diJieZhi(int hourZhi) => (11 + hourZhi) % 12;
+
+// ====================== 四化 ======================
+// 年干 → [禄, 权, 科, 忌]
+const List<List<String>> _siHuaTable = [
+  ['廉贞', '破军', '武曲', '太阳'],   // 甲
+  ['天机', '天梁', '紫微', '太阴'],   // 乙
+  ['天同', '天机', '文昌', '廉贞'],   // 丙
+  ['太阴', '天同', '天机', '巨门'],   // 丁
+  ['贪狼', '太阴', '右弼', '天机'],   // 戊
+  ['武曲', '贪狼', '天梁', '文曲'],   // 己
+  ['太阳', '武曲', '太阴', '天同'],   // 庚
+  ['巨门', '太阳', '文曲', '文昌'],   // 辛
+  ['天梁', '紫微', '左辅', '武曲'],   // 壬
+  ['破军', '巨门', '太阴', '贪狼'],   // 癸
+];
+
+const List<String> _siHuaSuffix = ['禄', '权', '科', '忌'];
+
+// ====================== 大限 ======================
+/// 阳男阴女顺行, 阴男阳女逆行.
+/// yearGan: 0 (甲) -- 9 (癸); 阳干索引 0/2/4/6/8.
+bool _isDaXianShun(int yearGan, String gender) {
+  final yang = yearGan % 2 == 0;
+  final male = gender == '男' || gender.toLowerCase() == 'male';
+  return (yang && male) || (!yang && !male);
+}
+
 /// 紫微系 6 主星: 紫微, 天机, 太阳, 武曲, 天同, 廉贞.
 /// 相对紫微位置 offset:  0   -1   -3   -4   -5   -8
 List<_StarPlacement> _ziWeiSystem(int z) {
@@ -297,40 +390,120 @@ class ZiWeiEngine extends DivinationEngine {
     final bureau = _ganZhiToBureau[mingGzIdx] ?? 4;
     final bureauName = _bureauName[bureau]!;
 
+    // 年支 (用于火铃星)
+    final yearZhiCh = yearGz.substring(1, 2);
+    final yearZhi = _zhiNames.indexOf(yearZhiCh);
+
     // 紫微 + 14 主星
     final ziWei = _ziWeiZhi(bureau, lunarDay);
     final ziSys = _ziWeiSystem(ziWei);
     final tfSys = _tianFuSystem(ziWei);
-    final allStars = [...ziSys, ...tfSys];
+    final mainStars = [...ziSys, ...tfSys];
 
-    // 12 宫 (从 命宫 逆时针)
-    // 第 i 宫 (0=命, 1=兄, ...) 的地支 = (mingZhi - i + 12) mod 12
+    // 六吉
+    final luckyStars = <_StarPlacement>[
+      _StarPlacement('左辅', _zuoFuZhi(lunarMonth)),
+      _StarPlacement('右弼', _youBiZhi(lunarMonth)),
+      _StarPlacement('天魁', _tianKuiByGan[yearGan]!),
+      _StarPlacement('天钺', _tianYueByGan[yearGan]!),
+      _StarPlacement('文昌', _wenChangZhi(hourZhi)),
+      _StarPlacement('文曲', _wenQuZhi(hourZhi)),
+    ];
+
+    // 六煞
+    final badStars = <_StarPlacement>[
+      _StarPlacement('擎羊', _qingYangZhi(yearGan)),
+      _StarPlacement('陀罗', _tuoLuoZhi(yearGan)),
+      _StarPlacement('火星', _huoXingZhi(yearZhi, hourZhi)),
+      _StarPlacement('铃星', _lingXingZhi(yearZhi, hourZhi)),
+      _StarPlacement('地空', _diKongZhi(hourZhi)),
+      _StarPlacement('地劫', _diJieZhi(hourZhi)),
+    ];
+
+    // 四化: 把后缀加到对应主星名后. 例如 "紫微" → "紫微科" (壬年生人).
+    final siHua = _siHuaTable[yearGan];
+    final siHuaMap = <String, String>{
+      for (var i = 0; i < 4; i++) siHua[i]: _siHuaSuffix[i],
+    };
+    String tagSiHua(String starName) {
+      final suffix = siHuaMap[starName];
+      return suffix == null ? starName : '$starName$suffix';
+    }
+
+    // 12 宫
     final palaces = <Map<String, dynamic>>[];
     final items = <DivinationItem>[];
     for (var i = 0; i < 12; i++) {
       final palaceZhi = ((mingZhi - i) % 12 + 12) % 12;
       final palaceGan = _mingPalaceGan(yearGan, palaceZhi);
       final palaceName = _palaceNames[i];
-      // 该宫的主星
-      final stars = allStars.where((s) => s.zhi == palaceZhi).map((s) => s.name).toList();
+      // 该宫的主星 (带四化后缀)
+      final mainHere = mainStars
+          .where((s) => s.zhi == palaceZhi)
+          .map((s) => tagSiHua(s.name))
+          .toList();
+      final luckyHere = luckyStars
+          .where((s) => s.zhi == palaceZhi)
+          .map((s) => tagSiHua(s.name))
+          .toList();
+      final badHere = badStars.where((s) => s.zhi == palaceZhi)
+          .map((s) => s.name)
+          .toList();
       palaces.add({
         'name': palaceName,
         'zhi': _zhiNames[palaceZhi],
         'gan': _ganNames[palaceGan],
         'ganZhi': '${_ganNames[palaceGan]}${_zhiNames[palaceZhi]}',
-        'stars': stars,
+        'stars': mainHere,
+        'luckyStars': luckyHere,
+        'badStars': badHere,
         'isMing': i == 0,
         'isShen': palaceZhi == shenZhi,
       });
+      final allHereLabel = [...mainHere, ...luckyHere, ...badHere].join(' · ');
       items.add(DivinationItem(
         position: palaceName,
         positionHint: i == 0 ? '本宫, 看整体性格与命主能量' : '',
         name: '${_ganNames[palaceGan]}${_zhiNames[palaceZhi]}',
-        subtitle: stars.isEmpty ? '(无主星, 借对宫)' : stars.join(' · '),
-        keywords: stars,
+        subtitle: allHereLabel.isEmpty ? '(无星, 借对宫)' : allHereLabel,
+        keywords: mainHere,
         extra: {'palace': palaceName, 'zhi': _zhiNames[palaceZhi]},
       ));
     }
+
+    // 大限: 12 个 10 年区间, 起运岁 = 五行局数.
+    final daXianShun = _isDaXianShun(yearGan, gender);
+    final qiYun = bureau; // 起运岁
+    final daXian = <Map<String, dynamic>>[];
+    for (var i = 0; i < 12; i++) {
+      final z = daXianShun
+          ? (mingZhi + i) % 12
+          : ((mingZhi - i) % 12 + 12) % 12;
+      final startAge = qiYun + i * 10;
+      daXian.add({
+        'index': i + 1,
+        'startAge': startAge,
+        'endAge': startAge + 9,
+        'zhi': _zhiNames[z],
+        'palace': _palaceNames[(12 - ((z - mingZhi + 12) % 12)) % 12], // 该限对应的本命宫名
+      });
+    }
+
+    // 流年 (基于当前公历年). 流年命宫 = 当年年支位.
+    final nowYear = DateTime.now().year;
+    final nowLunarYear = Solar.fromYmd(nowYear, 6, 1).getLunar().getYearShengXiao();
+    // 直接拿当前年的年支
+    final nowEightChar = Solar.fromYmd(nowYear, 6, 1).getLunar().getEightChar();
+    final nowYearGz = nowEightChar.getYear();
+    final nowYearZhiIdx = _zhiNames.indexOf(nowYearGz.substring(1, 2));
+    final liuNianPalaceIdx = (12 - ((nowYearZhiIdx - mingZhi + 12) % 12)) % 12;
+    final liuNian = {
+      'year': nowYear,
+      'yearGanZhi': nowYearGz,
+      'zhi': _zhiNames[nowYearZhiIdx],
+      'palace': _palaceNames[liuNianPalaceIdx],
+      'shengXiao': nowLunarYear,
+    };
 
     return DivinationResult(
       engineId: id,
@@ -352,6 +525,13 @@ class ZiWeiEngine extends DivinationEngine {
         'bureauElement': _bureauNayin[bureau],
         'ziWeiZhi': _zhiNames[ziWei],
         'palaces': palaces,
+        'siHua': {
+          '禄': siHua[0], '权': siHua[1], '科': siHua[2], '忌': siHua[3],
+        },
+        'daXian': daXian,
+        'daXianDirection': daXianShun ? '顺行' : '逆行',
+        'qiYunAge': qiYun,
+        'liuNian': liuNian,
       },
     );
   }
@@ -360,8 +540,11 @@ class ZiWeiEngine extends DivinationEngine {
   String buildUserPrompt({required String question, required DivinationResult result}) {
     final ex = result.extras;
     final palaces = (ex['palaces'] as List).cast<Map>();
+    final siHua = ex['siHua'] as Map;
+    final daXian = (ex['daXian'] as List).cast<Map>();
+    final liuNian = ex['liuNian'] as Map;
     final buf = StringBuffer();
-    buf.writeln('请基于以下精确排出的紫微命盘给我做解读.');
+    buf.writeln('请基于以下精确排出的紫微命盘 (含 14 主星 + 六吉六煞 + 四化 + 大限 + 流年) 给我做深度解读.');
     buf.writeln();
     buf.writeln('阳历: ${ex["birthdate"]} ${ex["birthtime"]}');
     buf.writeln('农历: ${ex["lunarDate"]}');
@@ -371,31 +554,43 @@ class ZiWeiEngine extends DivinationEngine {
     buf.writeln();
     buf.writeln('命宫: ${ex["mingPalace"]}');
     buf.writeln('身宫地支: ${ex["shenPalaceZhi"]}');
-    buf.writeln('五行局: ${ex["bureau"]}');
+    buf.writeln('五行局: ${ex["bureau"]}  (起运 ${ex["qiYunAge"]} 岁, ${ex["daXianDirection"]})');
     buf.writeln('紫微星落: ${ex["ziWeiZhi"]}');
     buf.writeln();
-    buf.writeln('12 宫排盘:');
+    buf.writeln('四化 (年干甲乙丙丁戊己庚辛壬癸 决定):');
+    buf.writeln('  化禄: ${siHua["禄"]}    化权: ${siHua["权"]}    化科: ${siHua["科"]}    化忌: ${siHua["忌"]}');
+    buf.writeln();
+    buf.writeln('12 宫排盘 (主星+吉星+煞星, 四化后缀已加在对应星名后):');
     for (final p in palaces) {
       final markers = <String>[];
       if (p['isMing'] == true) markers.add('★命');
       if (p['isShen'] == true) markers.add('身');
-      final stars = (p['stars'] as List).isEmpty
-          ? '(无主星)'
-          : (p['stars'] as List).join('·');
-      buf.writeln('  ${p["name"]} (${p["ganZhi"]}) ${markers.join("")} : $stars');
+      final main = (p['stars'] as List).isEmpty ? '(无主星)' : (p['stars'] as List).join('·');
+      final lucky = (p['luckyStars'] as List).isEmpty ? '' : '  吉:${(p['luckyStars'] as List).join("·")}';
+      final bad = (p['badStars'] as List).isEmpty ? '' : '  煞:${(p['badStars'] as List).join("·")}';
+      buf.writeln('  ${p["name"]} (${p["ganZhi"]}) ${markers.join("")}: $main$lucky$bad');
     }
+    buf.writeln();
+    buf.writeln('大限 (10 年一限, ${ex["daXianDirection"]}):');
+    for (final d in daXian.take(8)) {
+      buf.writeln('  第${d["index"]}限 ${d["startAge"]}-${d["endAge"]}岁 → 地支${d["zhi"]} (对应本命${d["palace"]})');
+    }
+    buf.writeln();
+    buf.writeln('流年: ${liuNian["year"]} (${liuNian["yearGanZhi"]} ${liuNian["shengXiao"]}年) → 流年命宫在 ${liuNian["zhi"]} (本命${liuNian["palace"]})');
     buf.writeln();
     buf.writeln('关注方向: ${ex["focus"]}');
     if (question.trim().isNotEmpty) {
       buf.writeln('我的问题: ${question.trim()}');
     }
     buf.writeln();
-    buf.writeln('请按紫微斗数: '
-        '\n1. 命宫主星 (或无主星情况) + 三方四正 (命/迁/财/官) 的格局, '
-        '\n2. 身宫主星, 解读后半生重点, '
-        '\n3. 关注方向对应的宫位 (事业看官禄+财帛, 感情看夫妻+福德, etc.), '
-        '\n4. 若有训练知识可补充, 标注"基于训练知识, 非算出": 六吉六煞与四化推断, '
-        '\n5. 不预测命定式吉凶, 给方向与可执行建议.');
+    buf.writeln('请按紫微斗数深度解读: '
+        '\n1. 命宫主星格局 + 三方四正 (命/迁/财/官) 主星组合 + 该宫的六吉六煞 + 四化影响, '
+        '\n2. 身宫定后半生重心, '
+        '\n3. 当前大限 (按用户岁数推算) 走哪一宫, 主题是什么, '
+        '\n4. ${liuNian["year"]} 流年命宫落 ${liuNian["palace"]}, 今年关注什么, '
+        '\n5. 联系用户关注的方向 (事业/感情/财运) 落到具体宫位 + 星组合, '
+        '\n6. 四化是命盘最关键的"动态指针": 化禄主财/喜, 化权主权/控, 化科主名/贵, 化忌主阻/课题. 哪几颗化在哪几宫 = 这辈子最被强调的能量场, '
+        '\n7. 不预测命定式吉凶, 给方向与可执行建议.');
     return buf.toString();
   }
 

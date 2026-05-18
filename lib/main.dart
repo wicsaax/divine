@@ -17,6 +17,7 @@ import 'core/ziwei.dart';
 import 'i18n/strings.dart';
 import 'llm/config.dart';
 import 'storage/app_settings.dart';
+import 'storage/prompt_store.dart';
 import 'ui/screens/home_screen.dart';
 
 void _registerEngines() {
@@ -39,6 +40,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   _registerEngines();
   await AppSettings.instance.load();
+  await PromptStore.instance.load();
   S.setLocale(AppSettings.instance.locale);
   // 同步 settings.locale ↔ S.locale
   AppSettings.instance.addListener(() {

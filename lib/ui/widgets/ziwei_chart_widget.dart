@@ -94,6 +94,8 @@ class ZiWeiChartWidget extends StatelessWidget {
     final isMing = palace['isMing'] == true;
     final isShen = palace['isShen'] == true;
     final stars = (palace['stars'] as List).cast<String>();
+    final luckyStars = ((palace['luckyStars'] as List?) ?? const []).cast<String>();
+    final badStars = ((palace['badStars'] as List?) ?? const []).cast<String>();
 
     return Positioned(
       left: pos.$2 * cellSize,
@@ -156,19 +158,17 @@ class ZiWeiChartWidget extends StatelessWidget {
               child: Wrap(
                 spacing: 2,
                 runSpacing: 1,
-                children: stars
-                    .map((s) => Text(
-                          s,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: cellSize * 0.085,
-                            color: _isPositiveStar(s)
-                                ? Colors.amber.shade700
-                                : theme.colorScheme.onSurface,
-                            height: 1.1,
-                          ),
-                        ))
-                    .toList(),
+                children: [
+                  // 主星 (含四化后缀)
+                  ...stars.map((s) => _starText(s, cellSize, theme,
+                      mainStar: true)),
+                  // 吉星
+                  ...luckyStars.map((s) => _starText(s, cellSize, theme,
+                      lucky: true)),
+                  // 煞星
+                  ...badStars.map((s) => _starText(s, cellSize, theme,
+                      bad: true)),
+                ],
               ),
             ),
           ],
@@ -177,8 +177,73 @@ class ZiWeiChartWidget extends StatelessWidget {
     );
   }
 
+  /// 星名渲染. 主星金色, 带四化后缀 (禄权科忌) 时高亮; 吉星蓝, 煞星红.
+  Widget _starText(String s, double cellSize, ThemeData theme,
+      {bool mainStar = false, bool lucky = false, bool bad = false}) {
+    final hua = _siHuaSuffix(s); // '禄' | '权' | '科' | '忌' | null
+    Color color;
+    if (mainStar) {
+      color = _isPositiveStar(s.replaceAll(RegExp(r'[禄权科忌]$'), ''))
+          ? Colors.amber.shade700
+          : theme.colorScheme.onSurface;
+    } else if (lucky) {
+      color = Colors.blue.shade600;
+    } else {
+      color = Colors.red.shade400;
+    }
+    if (hua == null) {
+      return Text(s,
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            fontSize: cellSize * 0.085,
+            color: color,
+            height: 1.1,
+          ));
+    }
+    // 用 RichText 把四化后缀高亮成不同色
+    final huaColor = switch (hua) {
+      '禄' => const Color(0xFFE6B800),
+      '权' => Colors.red.shade700,
+      '科' => Colors.green.shade700,
+      '忌' => const Color(0xFF6B5B95),
+      _ => color,
+    };
+    final base = s.substring(0, s.length - 1);
+    return RichText(
+      text: TextSpan(
+        children: [
+          TextSpan(
+            text: base,
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: cellSize * 0.085,
+              color: color,
+              height: 1.1,
+            ),
+          ),
+          TextSpan(
+            text: hua,
+            style: TextStyle(
+              fontWeight: FontWeight.w900,
+              fontSize: cellSize * 0.075,
+              color: huaColor,
+              height: 1.1,
+              backgroundColor: huaColor.withValues(alpha: 0.15),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String? _siHuaSuffix(String name) {
+    if (name.isEmpty) return null;
+    final last = name[name.length - 1];
+    if ('禄权科忌'.contains(last)) return last;
+    return null;
+  }
+
   bool _isPositiveStar(String name) {
-    // 主星里这几颗传统视为吉星 (作为色彩区分, 实际还要看组合)
     const positive = ['紫微', '天府', '太阳', '太阴', '天梁', '天同', '武曲', '天相'];
     return positive.contains(name);
   }

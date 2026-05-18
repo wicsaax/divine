@@ -11,6 +11,7 @@ import '../../llm/client.dart';
 import '../../llm/config.dart';
 import '../../storage/app_settings.dart';
 import 'about_screen.dart';
+import 'prompts_screen.dart';
 import 'provider_guide_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -511,8 +512,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onChanged: settings.setDefaultEngine,
             ),
 
+            // ============= 提示词 =============
+            const SizedBox(height: 16),
+            const Divider(),
+            const SizedBox(height: 12),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.text_snippet_outlined),
+              title: const Text('提示词管理'),
+              subtitle: const Text('为每种占卜法新建多个 LLM system prompt, 一键切换'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const PromptsScreen()),
+              ),
+            ),
+
             // ============= 数据 =============
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
             const Divider(),
             const SizedBox(height: 12),
             _label(theme, S.t('settings.section_data')),

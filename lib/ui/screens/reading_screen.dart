@@ -8,6 +8,7 @@ import '../../llm/config.dart';
 import '../../storage/app_settings.dart';
 import '../../storage/history.dart';
 import '../../storage/profile.dart';
+import '../../storage/prompt_store.dart';
 import '../widgets/bazi_widget.dart';
 import '../widgets/crystal_ball_widget.dart';
 import '../widgets/hexagram_widget.dart';
@@ -58,6 +59,7 @@ class _ReadingScreenState extends State<ReadingScreen> {
   bool _saved = false;
   String? _recordId;        // 同一次 reading 反复保存用同一个 id (避免历史里重复)
   List<String> _tags = [];
+  bool _autoScroll = true;  // 用户在底部时为 true; 手动上滑后为 false 直到回到底部
 
   Color get _accent => widget.engine.accentColorHex != null
       ? Color(widget.engine.accentColorHex!)
@@ -180,10 +182,13 @@ class _ReadingScreenState extends State<ReadingScreen> {
       question: question,
       result: _result!,
     );
+    // 优先用用户激活的自定义 prompt
+    final systemPrompt = PromptStore.instance
+        .resolveSystemPrompt(widget.engine.id, widget.engine.systemPrompt);
     setState(() {
       _messages
         ..clear()
-        ..add(ChatMessage(role: 'system', content: widget.engine.systemPrompt))
+        ..add(ChatMessage(role: 'system', content: systemPrompt))
         ..add(ChatMessage(role: 'user', content: userPrompt));
     });
     await _runStream();
@@ -282,7 +287,9 @@ class _ReadingScreenState extends State<ReadingScreen> {
     await _runStream();
   }
 
-  void _scrollToBottom() {
+  /// 仅在 _autoScroll = true 时滚到底部. 用户上滑读历史时不强行拉回.
+  void _scrollToBottom({bool force = false}) {
+    if (!force && !_autoScroll) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollCtl.hasClients) return;
       _scrollCtl.animateTo(
@@ -291,6 +298,20 @@ class _ReadingScreenState extends State<ReadingScreen> {
         curve: Curves.easeOut,
       );
     });
+  }
+
+  /// 用户手动滚动时调; 据当前位置更新 _autoScroll.
+  bool _onScroll(ScrollNotification n) {
+    if (n is! ScrollUpdateNotification && n is! UserScrollNotification) {
+      return false;
+    }
+    final pos = n.metrics;
+    // 离底部 < 80px 视作"在底部"
+    final atBottom = pos.maxScrollExtent - pos.pixels < 80;
+    if (atBottom != _autoScroll) {
+      setState(() => _autoScroll = atBottom);
+    }
+    return false;
   }
 
   @override
@@ -325,10 +346,30 @@ class _ReadingScreenState extends State<ReadingScreen> {
       body: Column(
         children: [
           Expanded(
-            child: ListView(
-              controller: _scrollCtl,
-              padding: const EdgeInsets.all(16),
-              children: _buildContent(theme),
+            child: Stack(
+              children: [
+                NotificationListener<ScrollNotification>(
+                  onNotification: _onScroll,
+                  child: ListView(
+                    controller: _scrollCtl,
+                    padding: const EdgeInsets.all(16),
+                    children: _buildContent(theme),
+                  ),
+                ),
+                // 用户上滑且正在流式 → 显示一个回到底部的小浮标
+                if (!_autoScroll && _streaming)
+                  Positioned(
+                    right: 16, bottom: 16,
+                    child: FloatingActionButton.small(
+                      backgroundColor: _accent,
+                      onPressed: () {
+                        setState(() => _autoScroll = true);
+                        _scrollToBottom(force: true);
+                      },
+                      child: const Icon(Icons.keyboard_arrow_down, color: Colors.white),
+                    ),
+                  ),
+              ],
             ),
           ),
           // 解读已经开始 (有 message) 后才出现追问栏

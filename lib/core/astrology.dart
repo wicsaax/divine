@@ -217,6 +217,121 @@ class AstrologyEngine extends DivinationEngine {
 
     final ascLon = ascmc[0];
     final mcLon = ascmc[1];
+    final natalSunLon = planetData.firstWhere((p) => p['name'] == '太阳')['longitude'] as double;
+
+    // ====================== 深化计算 ======================
+    // 现在的儒略日 (UT)
+    final now = DateTime.now().toUtc();
+    final jdNow = Sweph.swe_julday(
+      now.year, now.month, now.day,
+      now.hour + now.minute / 60.0,
+      CalendarType.SE_GREG_CAL,
+    );
+
+    // 行运 (Transits): 当前各行星黄经
+    final transits = <Map<String, dynamic>>[];
+    for (final (body, name) in _planets) {
+      final pos = Sweph.swe_calc_ut(jdNow, body, flags);
+      transits.add({
+        'name': name,
+        'longitude': pos.longitude,
+        'sign': _zodiacSigns[_signIndex(pos.longitude)],
+        'signFormatted': _formatSign(pos.longitude),
+        'retrograde': pos.speedInLongitude < 0,
+      });
+    }
+
+    // 行运 → 本命相位 (发现当下天空怎样压本命)
+    final transitAspects = <Map<String, dynamic>>[];
+    for (var i = 0; i < transits.length; i++) {
+      for (var j = 0; j < planetData.length; j++) {
+        // 慢星 (木土天海冥) 的 transit 对本命快星更有意义
+        // 这里全跑, LLM 自己取舍.
+        final a = transits[i]['longitude'] as double;
+        final b = planetData[j]['longitude'] as double;
+        var diff = (a - b).abs() % 360;
+        if (diff > 180) diff = 360 - diff;
+        for (final (aspName, aspAngle, aspOrb) in _aspects) {
+          // 行运相位用更紧的 orb (3-4°)
+          final tightOrb = (aspOrb * 0.5).clamp(2.0, 5.0);
+          if ((diff - aspAngle).abs() <= tightOrb) {
+            transitAspects.add({
+              'transitPlanet': transits[i]['name'],
+              'natalPlanet': planetData[j]['name'],
+              'aspect': aspName,
+              'angle': aspAngle,
+              'orb': (diff - aspAngle).abs(),
+            });
+            break;
+          }
+        }
+      }
+    }
+
+    // 二次推运 (Secondary Progressions): 一日 = 一年
+    // 出生后 N 天的天象 = 第 N 年的人生
+    final ageYears = (now.toUtc().difference(DateTime.utc(y, mo, d, h, mi)).inDays) / 365.25;
+    final ageInt = ageYears.floor();
+    final jdProgressed = jd + ageInt.toDouble(); // jd + ageInt 日
+    final progressions = <Map<String, dynamic>>[];
+    for (final (body, name) in _planets) {
+      final pos = Sweph.swe_calc_ut(jdProgressed, body, flags);
+      progressions.add({
+        'name': name,
+        'longitude': pos.longitude,
+        'signFormatted': _formatSign(pos.longitude),
+      });
+    }
+
+    // 太阳弧 (Solar Arc Direction): 当前太阳 - 本命太阳 = 弧度. 所有本命行星 + 弧度 = 太阳弧推运.
+    final solarArc = (() {
+      var arc = (transits.first['longitude'] as double) - natalSunLon;
+      arc = ((arc % 360) + 360) % 360;
+      return arc;
+    })();
+    final solarArcPositions = <Map<String, dynamic>>[];
+    for (final p in planetData) {
+      final lon = ((p['longitude'] as double) + solarArc) % 360;
+      solarArcPositions.add({
+        'name': p['name'],
+        'longitude': lon,
+        'signFormatted': _formatSign(lon),
+      });
+    }
+
+    // 中点 (Midpoints): 最常用的几个 (而非全部 45 对)
+    double midpoint(double a, double b) {
+      var diff = (b - a + 360) % 360;
+      if (diff > 180) diff = diff - 360; // 取短弧
+      return ((a + diff / 2) % 360 + 360) % 360;
+    }
+    double lonOf(String n) =>
+        planetData.firstWhere((p) => p['name'] == n)['longitude'] as double;
+    final midpointPairs = [
+      ('太阳', '月亮', '心灵/伴侣轴'),
+      ('金星', '火星', '爱欲/吸引轴'),
+      ('太阳', '土星', '责任/老化轴'),
+      ('月亮', '土星', '情感约束'),
+      ('木星', '土星', '扩张-收缩'),
+      ('水星', '金星', '思想-审美'),
+    ];
+    final midpoints = <Map<String, dynamic>>[];
+    for (final (a, b, theme) in midpointPairs) {
+      final lon = midpoint(lonOf(a), lonOf(b));
+      midpoints.add({
+        'pair': '$a / $b',
+        'theme': theme,
+        'longitude': lon,
+        'signFormatted': _formatSign(lon),
+      });
+    }
+    // ASC/MC 中点也常被关注
+    midpoints.add({
+      'pair': 'ASC / MC',
+      'theme': '社会角色与个人形象的轴中点',
+      'longitude': midpoint(ascLon, mcLon),
+      'signFormatted': _formatSign(midpoint(ascLon, mcLon)),
+    });
 
     // 相位 (planet × planet)
     final aspectList = <Map<String, dynamic>>[];
@@ -288,6 +403,14 @@ class AstrologyEngine extends DivinationEngine {
         'planets': planetData,
         'houses': houses,
         'aspects': aspectList,
+        // 深化计算
+        'ageYears': ageYears,
+        'transits': transits,
+        'transitAspects': transitAspects,
+        'progressions': progressions,
+        'solarArc': solarArc,
+        'solarArcPositions': solarArcPositions,
+        'midpoints': midpoints,
       },
     );
   }
@@ -298,22 +421,32 @@ class AstrologyEngine extends DivinationEngine {
     final planets = (ex['planets'] as List).cast<Map>();
     final houses = (ex['houses'] as List).cast<Map>();
     final aspects = (ex['aspects'] as List).cast<Map>();
+    final transits = (ex['transits'] as List?)?.cast<Map>() ?? const [];
+    final transitAspects = (ex['transitAspects'] as List?)?.cast<Map>() ?? const [];
+    final progressions = (ex['progressions'] as List?)?.cast<Map>() ?? const [];
+    final solarArcPositions = (ex['solarArcPositions'] as List?)?.cast<Map>() ?? const [];
+    final midpoints = (ex['midpoints'] as List?)?.cast<Map>() ?? const [];
+    final ageYears = (ex['ageYears'] as double?) ?? 0;
+    final variantKey = result.variantKey;
+
     final buf = StringBuffer();
-    buf.writeln('请基于以下由 Swiss Ephemeris 精确算出的本命盘给我做解读.');
+    buf.writeln('请基于以下由 Swiss Ephemeris 精确算出的本命盘 + 深化推运给我做深度解读.');
     buf.writeln();
     buf.writeln('阳历: ${ex["birthdate"]} ${ex["birthtime"]}');
     buf.writeln('出生地: ${ex["birthplace"]}');
+    buf.writeln('当前年龄: ${ageYears.toStringAsFixed(1)} 岁');
     buf.writeln();
+    buf.writeln('=== 本命盘 ===');
     buf.writeln('上升 (ASC): ${ex["ascendant"]}');
     buf.writeln('中天 (MC):  ${ex["mc"]}');
     buf.writeln();
-    buf.writeln('十大行星 (黄经度数 · 星座 · 宫位):');
+    buf.writeln('十大行星 (本命):');
     for (final p in planets) {
       final retro = (p['retrograde'] as bool) ? ' ☋' : '';
       buf.writeln('  ${p["name"]}: ${p["signFormatted"]} · 第${p["house"]}宫$retro');
     }
     buf.writeln();
-    buf.writeln('主要相位 (容许 orb 内):');
+    buf.writeln('本命主要相位:');
     if (aspects.isEmpty) {
       buf.writeln('  (无显著相位)');
     } else {
@@ -331,17 +464,71 @@ class AstrologyEngine extends DivinationEngine {
       buf.writeln('  第${h["num"]}宫 起 ${h["cuspFormatted"]}$planetsHere');
     }
     buf.writeln();
+    buf.writeln('=== 深化推运 (Transit / Progression / Solar Arc / Midpoints) ===');
+
+    // 行运 (transit_variant 时着重, 其他变体也展示但简短)
+    if (transits.isNotEmpty) {
+      buf.writeln('当下行运 (Transits, 此刻天空):');
+      for (final t in transits) {
+        final retro = (t['retrograde'] as bool? ?? false) ? ' ☋' : '';
+        buf.writeln('  ${t["name"]}: ${t["signFormatted"]}$retro');
+      }
+    }
+    if (transitAspects.isNotEmpty) {
+      buf.writeln();
+      buf.writeln('行运 → 本命的紧密相位 (orb < 5°):');
+      for (final a in transitAspects.take(15)) {
+        final orb = (a['orb'] as double).toStringAsFixed(1);
+        buf.writeln('  行运${a["transitPlanet"]} ${a["aspect"]} 本命${a["natalPlanet"]} (orb $orb°)');
+      }
+      if (transitAspects.length > 15) {
+        buf.writeln('  ... 还有 ${transitAspects.length - 15} 条 (略)');
+      }
+    }
+
+    // 推运 (二次推运)
+    if (progressions.isNotEmpty) {
+      buf.writeln();
+      buf.writeln('二次推运 (Secondary Progressions, "一日一年"法, 内在成熟):');
+      for (final p in progressions) {
+        buf.writeln('  推运${p["name"]}: ${p["signFormatted"]}');
+      }
+    }
+
+    // 太阳弧
+    final arc = ex['solarArc'] as double?;
+    if (arc != null) {
+      buf.writeln();
+      buf.writeln('太阳弧 (Solar Arc Direction, 弧度 ${arc.toStringAsFixed(2)}°, 外在事件):');
+      for (final p in solarArcPositions) {
+        buf.writeln('  太阳弧${p["name"]}: ${p["signFormatted"]}');
+      }
+    }
+
+    // 中点
+    if (midpoints.isNotEmpty) {
+      buf.writeln();
+      buf.writeln('关键中点 (Midpoints):');
+      for (final m in midpoints) {
+        buf.writeln('  ${m["pair"]} 中点: ${m["signFormatted"]}  (${m["theme"]})');
+      }
+    }
+
+    buf.writeln();
     buf.writeln('关注方向: ${ex["focus"]}');
     if (question.trim().isNotEmpty) {
       buf.writeln('我的问题: ${question.trim()}');
     }
     buf.writeln();
-    buf.writeln('请按现代心理占星 + 传统占星综合解读: '
-        '\n1. 太阳/月亮/上升三柱组合的人格底色, '
-        '\n2. 关键行星所落星座 + 宫位的实际意义, '
-        '\n3. 主要相位 (尤其紧张相位 — 对分/四分) 反映的内在张力, '
-        '\n4. 若关注方向是事业/感情/家庭, 重点回应对应宫位 (10/5,7/4 宫), '
-        '\n5. 不预测命定吉凶, 给原型理解 + 可行动建议.');
+    buf.writeln('请按现代心理占星 + 传统占星综合深度解读: '
+        '\n1. **本命底色**: 太阳/月亮/上升三柱组合的人格底色 + 关键行星落宫的实际意义, '
+        '\n2. **本命相位张力**: 紧张相位 (对分/四分) 是终生功课, 流畅相位 (三分/六合) 是天赋通道, '
+        '\n3. **当下行运**: 行运 → 本命 的紧密相位反映现在天空对你的"敲门" — 哪些慢星 (土天海冥) 正在压本命哪颗, '
+        '\n4. **内在成熟 (推运)**: 推运月亮 (~28年一轮) + 推运太阳的星座是当前阶段的内在主题, '
+        '\n5. **外在事件 (太阳弧)**: 太阳弧推运的行星位置往往对应可见的人生事件节点, '
+        '\n6. **中点**: 关键中点 (尤其太阳/月亮中点 + 金星/火星中点) 揭示一些核心议题, '
+        '\n7. 若关注方向是 ${variantKey == "career" ? "事业 (10宫 + MC + 行运 → 10宫)" : variantKey == "love" ? "感情 (金星/火星 + 5/7宫 + 行运)" : variantKey == "family" ? "家庭 (4宫 + IC + 月亮)" : "整体"}, 重点回应, '
+        '\n8. 不预测命定吉凶, 给原型理解 + 可行动建议.');
     return buf.toString();
   }
 
