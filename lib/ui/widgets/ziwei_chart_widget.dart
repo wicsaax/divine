@@ -93,6 +93,8 @@ class ZiWeiChartWidget extends StatelessWidget {
 
     final isMing = palace['isMing'] == true;
     final isShen = palace['isShen'] == true;
+    final isCurrentDaXian = palace['isCurrentDaXian'] == true;
+    final isLiuNian = palace['isLiuNian'] == true;
     final stars = (palace['stars'] as List).cast<String>();
     final luckyStars = ((palace['luckyStars'] as List?) ?? const []).cast<String>();
     final badStars = ((palace['badStars'] as List?) ?? const []).cast<String>();
@@ -108,11 +110,21 @@ class ZiWeiChartWidget extends StatelessWidget {
         decoration: BoxDecoration(
           color: isMing
               ? accent.withValues(alpha: 0.18)
-              : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+              : (isCurrentDaXian
+                  ? Colors.orange.withValues(alpha: 0.12)
+                  : (isLiuNian
+                      ? Colors.green.withValues(alpha: 0.12)
+                      : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6))),
           borderRadius: BorderRadius.circular(6),
           border: Border.all(
-            color: isMing ? accent : accent.withValues(alpha: 0.25),
-            width: isMing ? 1.5 : 1,
+            color: isMing
+                ? accent
+                : (isCurrentDaXian
+                    ? Colors.orange.shade400
+                    : (isLiuNian
+                        ? Colors.green.shade500
+                        : accent.withValues(alpha: 0.25))),
+            width: (isMing || isCurrentDaXian || isLiuNian) ? 1.8 : 1,
           ),
         ),
         child: Column(
@@ -143,6 +155,26 @@ class ZiWeiChartWidget extends StatelessWidget {
                         fontWeight: FontWeight.w700,
                         fontSize: cellSize * 0.10,
                       )),
+                if (isCurrentDaXian)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 2),
+                    child: Text('限',
+                        style: TextStyle(
+                          color: Colors.orange.shade700,
+                          fontWeight: FontWeight.w800,
+                          fontSize: cellSize * 0.10,
+                        )),
+                  ),
+                if (isLiuNian)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 2),
+                    child: Text('年',
+                        style: TextStyle(
+                          color: Colors.green.shade700,
+                          fontWeight: FontWeight.w800,
+                          fontSize: cellSize * 0.10,
+                        )),
+                  ),
               ],
             ),
             const SizedBox(height: 1),

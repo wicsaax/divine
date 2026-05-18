@@ -774,17 +774,37 @@ class _DivinationCard extends StatelessWidget {
     if (id == 'ziwei') return _buildZiWei(context, accent);
     if (id == 'astrology') {
       final planets = (ex['planets'] as List).cast<Map<String, dynamic>>();
-      // houseCusps 是 list, 拿 cusps[1..12] + ascmc; 但我们存的是 result.houses
       final houses = (ex['houses'] as List).cast<Map>();
-      final cusps = <double>[0.0]; // index 0 unused
+      final cusps = <double>[0.0];
       for (var i = 1; i <= 12; i++) {
         cusps.add(houses[i - 1]['cuspLongitude'] as double);
       }
       final aspects = (ex['aspects'] as List).cast<Map<String, dynamic>>();
+      final transits = (ex['transits'] as List?)?.cast<Map<String, dynamic>>();
+      final progressions = (ex['progressions'] as List?)?.cast<Map<String, dynamic>>();
+      final transitAspects = (ex['transitAspects'] as List?)?.cast<Map<String, dynamic>>();
       return [
-        Center(child: NatalChartView(planets: planets, houseCusps: cusps, aspects: aspects)),
+        Center(
+          child: NatalChartView(
+            planets: planets,
+            houseCusps: cusps,
+            aspects: aspects,
+            transits: transits,
+            progressions: progressions,
+            transitAspects: transitAspects,
+            size: 360,
+          ),
+        ),
         const SizedBox(height: 10),
         const NatalChartLegend(),
+        const SizedBox(height: 4),
+        Text(
+          '○ 中圈 = 本命   ○ 外圈蓝 = 行运   ○ 内圈紫 = 推运   ⇢ 虚线 = 行运对本命相位',
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
         const SizedBox(height: 6),
         Text(
           '上升 ${ex["ascendant"]}  ·  中天 ${ex["mc"]}',
@@ -914,10 +934,12 @@ class _DivinationCard extends StatelessWidget {
       ),
       const SizedBox(height: 8),
       Text(
-        '★ = 命宫    "身" = 身宫    金色字 = 传统视为吉星的主星',
+        '★ 命宫  ·  身 身宫  ·  限 当前大限  ·  年 流年命宫\n'
+        '金=主星  ·  蓝=吉星  ·  红=煞星  ·  禄权科忌 = 四化标',
         textAlign: TextAlign.center,
         style: theme.textTheme.bodySmall?.copyWith(
           color: theme.colorScheme.onSurfaceVariant,
+          height: 1.6,
         ),
       ),
     ];

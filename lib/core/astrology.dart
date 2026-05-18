@@ -113,10 +113,11 @@ class AstrologyEngine extends DivinationEngine {
 
   @override
   List<DivinationVariant> get variants => const [
-        DivinationVariant(key: 'natal_overview', name: '本命盘整体', description: '太阳/月亮/上升 + 行星宫位 + 主要相位.'),
+        DivinationVariant(key: 'natal_overview', name: '本命盘整体 (西洋)', description: '回归黄道, 太阳/月亮/上升 + 行星宫位 + 主要相位.'),
         DivinationVariant(key: 'career',         name: '事业 (10 宫)', description: 'MC + 10 宫 + 6 宫 + 工作星.'),
         DivinationVariant(key: 'love',           name: '感情 (5/7 宫)', description: '金星 + 火星 + 5/7 宫相位.'),
         DivinationVariant(key: 'family',         name: '家庭 (4 宫)', description: 'IC + 4 宫 + 月亮.'),
+        DivinationVariant(key: 'vedic_natal',    name: '印度占星 (Vedic)', description: '恒星黄道 (Lahiri ayanamsa), 印度命盘视角.'),
       ];
 
   @override
@@ -183,7 +184,13 @@ class AstrologyEngine extends DivinationEngine {
     // Julian Day (UT)
     final jd = Sweph.swe_julday(y, mo, d, utHourDec, CalendarType.SE_GREG_CAL);
 
-    final flags = SwephFlag.SEFLG_SPEED | SwephFlag.SEFLG_SWIEPH;
+    final isVedic = variantKey.startsWith('vedic');
+    var flags = SwephFlag.SEFLG_SPEED | SwephFlag.SEFLG_SWIEPH;
+    if (isVedic) {
+      // 印度占星: 恒星黄道, Lahiri ayanamsa (印度标准)
+      Sweph.swe_set_sid_mode(SiderealMode.SE_SIDM_LAHIRI);
+      flags = flags | SwephFlag.SEFLG_SIDEREAL;
+    }
 
     // 计算各行星
     final planetData = <Map<String, dynamic>>[];
@@ -430,7 +437,17 @@ class AstrologyEngine extends DivinationEngine {
     final variantKey = result.variantKey;
 
     final buf = StringBuffer();
-    buf.writeln('请基于以下由 Swiss Ephemeris 精确算出的本命盘 + 深化推运给我做深度解读.');
+    final isVedic = result.variantKey.startsWith('vedic');
+    if (isVedic) {
+      buf.writeln('=== 印度占星 (Vedic / Jyotish) 视角 ===');
+      buf.writeln('以下盘面使用恒星黄道 (sidereal, Lahiri ayanamsa). '
+          '请用印度占星原则解读: rasi (黄道宫), nakshatra (27 宿, 月落位决定), '
+          'dasha (大运周期, 月相决定起运), 9 grahas (七政 + 罗睺/计都) 等.');
+      buf.writeln();
+    }
+    buf.writeln(isVedic
+        ? '请基于以下由 Swiss Ephemeris 精确算出的印度本命盘 (恒星黄道) 给我做 Vedic 解读.'
+        : '请基于以下由 Swiss Ephemeris 精确算出的本命盘 + 深化推运给我做深度解读.');
     buf.writeln();
     buf.writeln('阳历: ${ex["birthdate"]} ${ex["birthtime"]}');
     buf.writeln('出生地: ${ex["birthplace"]}');

@@ -4,9 +4,12 @@ import 'core/astrology.dart';
 import 'core/bazi.dart';
 import 'core/biblio.dart';
 import 'core/divination.dart';
+import 'core/dream.dart';
 import 'core/generic.dart';
+import 'core/geomancy.dart';
 import 'core/iching.dart';
 import 'core/lenormand.dart';
+import 'core/maya.dart';
 import 'core/numerology.dart';
 import 'core/ogham.dart';
 import 'core/plum.dart';
@@ -31,7 +34,10 @@ void _registerEngines() {
   DivinationRegistry.register(NumerologyEngine());
   DivinationRegistry.register(RunesEngine());
   DivinationRegistry.register(OghamEngine());
+  DivinationRegistry.register(GeomancyEngine());
+  DivinationRegistry.register(MayaTzolkinEngine());
   DivinationRegistry.register(BiblioEngine());
+  DivinationRegistry.register(DreamEngine());
   DivinationRegistry.register(YesNoEngine());
   DivinationRegistry.register(GenericEngine());
 }

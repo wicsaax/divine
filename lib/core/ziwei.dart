@@ -492,18 +492,34 @@ class ZiWeiEngine extends DivinationEngine {
     // 流年 (基于当前公历年). 流年命宫 = 当年年支位.
     final nowYear = DateTime.now().year;
     final nowLunarYear = Solar.fromYmd(nowYear, 6, 1).getLunar().getYearShengXiao();
-    // 直接拿当前年的年支
     final nowEightChar = Solar.fromYmd(nowYear, 6, 1).getLunar().getEightChar();
     final nowYearGz = nowEightChar.getYear();
     final nowYearZhiIdx = _zhiNames.indexOf(nowYearGz.substring(1, 2));
     final liuNianPalaceIdx = (12 - ((nowYearZhiIdx - mingZhi + 12) % 12)) % 12;
+    final liuNianZhi = _zhiNames[nowYearZhiIdx];
     final liuNian = {
       'year': nowYear,
       'yearGanZhi': nowYearGz,
-      'zhi': _zhiNames[nowYearZhiIdx],
+      'zhi': liuNianZhi,
       'palace': _palaceNames[liuNianPalaceIdx],
       'shengXiao': nowLunarYear,
     };
+
+    // 当前年龄推算所在大限
+    final ageNow = nowYear - y;
+    int currentDaXianIdx = ((ageNow - qiYun) / 10).floor();
+    if (currentDaXianIdx < 0) currentDaXianIdx = 0;
+    if (currentDaXianIdx > 11) currentDaXianIdx = 11;
+    final currentDaXianZhi = daXianShun
+        ? _zhiNames[(mingZhi + currentDaXianIdx) % 12]
+        : _zhiNames[((mingZhi - currentDaXianIdx) % 12 + 12) % 12];
+
+    // 在每个 palace 上加 isCurrentDaXian / isLiuNian 标记
+    for (final p in palaces) {
+      final zhi = p['zhi'] as String;
+      p['isCurrentDaXian'] = zhi == currentDaXianZhi;
+      p['isLiuNian'] = zhi == liuNianZhi;
+    }
 
     return DivinationResult(
       engineId: id,
@@ -532,6 +548,9 @@ class ZiWeiEngine extends DivinationEngine {
         'daXianDirection': daXianShun ? '顺行' : '逆行',
         'qiYunAge': qiYun,
         'liuNian': liuNian,
+        'ageNow': ageNow,
+        'currentDaXianIdx': currentDaXianIdx,
+        'currentDaXianZhi': currentDaXianZhi,
       },
     );
   }

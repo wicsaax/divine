@@ -2,6 +2,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:divine/core/bazi.dart';
 import 'package:divine/core/biblio.dart';
+import 'package:divine/core/dream.dart';
+import 'package:divine/core/geomancy.dart';
+import 'package:divine/core/maya.dart';
 import 'package:divine/core/ziwei.dart';
 import 'package:divine/core/generic.dart';
 import 'package:divine/core/iching.dart';
@@ -169,6 +172,32 @@ void main() {
       });
       final pillars = r.extras['pillars'] as Map;
       expect(pillars['hour'], '');
+    });
+
+    test('maya tzolkin produces sign + tone', () {
+      final e = MayaTzolkinEngine();
+      final r = e.perform(variantKey: 'birth', inputs: {
+        'birthdate': '1990-06-15',
+      });
+      expect(r.items.length, 2);
+      expect(r.extras['signIdx'], inInclusiveRange(0, 19));
+      expect(r.extras['tone'], inInclusiveRange(1, 13));
+    });
+
+    test('geomancy produces full 15-figure chart', () {
+      final e = GeomancyEngine();
+      final r = e.perform(variantKey: 'standard');
+      // 4 母 + 4 女 + 4 侄 + 2 见证 + 1 判官 = 15
+      expect(r.items.length, 15);
+      expect(r.extras['judge'], isNotNull);
+    });
+
+    test('dream engine variants all run', () {
+      final e = DreamEngine();
+      for (final v in e.variants) {
+        final r = e.perform(variantKey: v.key);
+        expect(r.variantName, v.name);
+      }
     });
   });
 }

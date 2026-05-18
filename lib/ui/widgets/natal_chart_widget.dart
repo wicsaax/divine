@@ -20,6 +20,12 @@ class NatalChartView extends StatelessWidget {
   final List<double> houseCusps;
   /// 主要相位: [{a, b, aspect, angle, orb}, ...]
   final List<Map<String, dynamic>> aspects;
+  /// 行运行星 (外圈, 可空)
+  final List<Map<String, dynamic>>? transits;
+  /// 推运行星 (内圈, 可空)
+  final List<Map<String, dynamic>>? progressions;
+  /// 行运 → 本命的紧密相位 (可空)
+  final List<Map<String, dynamic>>? transitAspects;
   final double size;
 
   const NatalChartView({
@@ -27,6 +33,9 @@ class NatalChartView extends StatelessWidget {
     required this.planets,
     required this.houseCusps,
     required this.aspects,
+    this.transits,
+    this.progressions,
+    this.transitAspects,
     this.size = 320,
   });
 
@@ -41,6 +50,9 @@ class NatalChartView extends StatelessWidget {
           planets: planets,
           houseCusps: houseCusps,
           aspects: aspects,
+          transits: transits,
+          progressions: progressions,
+          transitAspects: transitAspects,
           colorScheme: theme.colorScheme,
           isDark: theme.brightness == Brightness.dark,
         ),
@@ -53,6 +65,9 @@ class _ChartPainter extends CustomPainter {
   final List<Map<String, dynamic>> planets;
   final List<double> houseCusps;
   final List<Map<String, dynamic>> aspects;
+  final List<Map<String, dynamic>>? transits;
+  final List<Map<String, dynamic>>? progressions;
+  final List<Map<String, dynamic>>? transitAspects;
   final ColorScheme colorScheme;
   final bool isDark;
 
@@ -60,6 +75,9 @@ class _ChartPainter extends CustomPainter {
     required this.planets,
     required this.houseCusps,
     required this.aspects,
+    this.transits,
+    this.progressions,
+    this.transitAspects,
     required this.colorScheme,
     required this.isDark,
   });
@@ -218,6 +236,88 @@ class _ChartPainter extends CustomPainter {
       );
     }
 
+    // 行运行星 (外圈, 略小, 蓝色调)
+    if (transits != null && transits!.isNotEmpty) {
+      final tRadius = outerR + 18; // 在黄道圈外
+      // 给外圈空间
+      canvas.drawCircle(center, tRadius,
+          Paint()..color = Colors.blue.withValues(alpha: 0.04)..style = PaintingStyle.fill);
+      canvas.drawCircle(center, tRadius,
+          Paint()..color = Colors.blue.withValues(alpha: 0.3)..style = PaintingStyle.stroke..strokeWidth = 0.6);
+      final tPlaced = <(double, double)>[];
+      for (var i = 0; i < transits!.length && i < _planetGlyphs.length; i++) {
+        final lon = transits![i]['longitude'] as double;
+        final a = _toAngle(lon);
+        var r = tRadius;
+        while (tPlaced.any((p2) => (p2.$1 - a).abs() < 0.14 && (p2.$2 - r).abs() < 12)) {
+          r += 12;
+        }
+        tPlaced.add((a, r));
+        final pos = _onCircle(center, r, a);
+        _drawText(
+          canvas,
+          _planetGlyphs[i],
+          pos,
+          color: Colors.blue.shade600,
+          fontSize: 13,
+          bold: true,
+        );
+      }
+    }
+
+    // 推运行星 (内圈, 紫色调)
+    if (progressions != null && progressions!.isNotEmpty) {
+      final pRadius = aspectR - 24;
+      canvas.drawCircle(center, pRadius,
+          Paint()..color = const Color(0xFF9580E0).withValues(alpha: 0.3)..style = PaintingStyle.stroke..strokeWidth = 0.6);
+      final pPlaced = <(double, double)>[];
+      for (var i = 0; i < progressions!.length && i < _planetGlyphs.length; i++) {
+        final lon = progressions![i]['longitude'] as double;
+        final a = _toAngle(lon);
+        var r = pRadius;
+        while (pPlaced.any((p2) => (p2.$1 - a).abs() < 0.14 && (p2.$2 - r).abs() < 12)) {
+          r -= 12;
+        }
+        pPlaced.add((a, r));
+        final pos = _onCircle(center, r, a);
+        _drawText(
+          canvas,
+          _planetGlyphs[i],
+          pos,
+          color: const Color(0xFF9580E0),
+          fontSize: 11,
+          bold: false,
+        );
+      }
+    }
+
+    // 行运 → 本命的紧密相位虚线
+    if (transitAspects != null && transitAspects!.isNotEmpty && transits != null) {
+      final tRadius = outerR + 18;
+      for (final asp in transitAspects!.take(10)) {
+        final transitName = asp['transitPlanet'] as String;
+        final natalName = asp['natalPlanet'] as String;
+        final t = transits!.firstWhere((p) => p['name'] == transitName, orElse: () => {});
+        final n = planets.firstWhere((p) => p['name'] == natalName, orElse: () => {});
+        if (t.isEmpty || n.isEmpty) continue;
+        final tA = _toAngle(t['longitude'] as double);
+        final nA = _toAngle(n['longitude'] as double);
+        final tP = _onCircle(center, tRadius, tA);
+        final nP = _onCircle(center, aspectR + 4, nA);
+        final aspectType = asp['aspect'] as String;
+        final color = switch (aspectType) {
+          '合相' => Colors.amber.shade600,
+          '对分' => Colors.red.shade400,
+          '三分' => Colors.green.shade500,
+          '四分' => Colors.deepOrange.shade400,
+          '六合' => Colors.blue.shade400,
+          _ => Colors.grey,
+        };
+        // 画虚线
+        _drawDashedLine(canvas, tP, nP, color.withValues(alpha: 0.55), 1.0);
+      }
+    }
+
     // ASC 指示 (cusp[1] 处一条粗线)
     final ascA = _toAngle(houseCusps[1]);
     canvas.drawLine(
@@ -250,6 +350,25 @@ class _ChartPainter extends CustomPainter {
     );
   }
 
+  void _drawDashedLine(Canvas canvas, Offset a, Offset b, Color color, double width) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = width;
+    final total = (b - a).distance;
+    const dashLen = 5.0;
+    const gap = 3.0;
+    const segLen = dashLen + gap;
+    final segCount = (total / segLen).floor();
+    final dx = (b.dx - a.dx) / total;
+    final dy = (b.dy - a.dy) / total;
+    for (var i = 0; i < segCount; i++) {
+      final start = i * segLen;
+      final p1 = Offset(a.dx + dx * start, a.dy + dy * start);
+      final p2 = Offset(a.dx + dx * (start + dashLen), a.dy + dy * (start + dashLen));
+      canvas.drawLine(p1, p2, paint);
+    }
+  }
+
   void _drawText(Canvas canvas, String text, Offset pos,
       {required Color color, required double fontSize, bool bold = false}) {
     final tp = TextPainter(
@@ -270,7 +389,10 @@ class _ChartPainter extends CustomPainter {
   bool shouldRepaint(covariant _ChartPainter old) =>
       old.planets != planets ||
       old.houseCusps != houseCusps ||
-      old.aspects != aspects;
+      old.aspects != aspects ||
+      old.transits != transits ||
+      old.progressions != progressions ||
+      old.transitAspects != transitAspects;
 }
 
 // 简易图例 (用于盘下方说明).
