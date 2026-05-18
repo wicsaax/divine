@@ -4,6 +4,7 @@ import 'package:divine/core/bazi.dart';
 import 'package:divine/core/biblio.dart';
 import 'package:divine/core/dream.dart';
 import 'package:divine/core/geomancy.dart';
+import 'package:divine/core/horoscope.dart';
 import 'package:divine/core/maya.dart';
 import 'package:divine/core/ziwei.dart';
 import 'package:divine/core/generic.dart';
@@ -198,6 +199,28 @@ void main() {
         final r = e.perform(variantKey: v.key);
         expect(r.variantName, v.name);
       }
+    });
+
+    test('zhou classic dream lookup matches symbols', () {
+      final e = DreamEngine();
+      final r = e.perform(
+        variantKey: 'zhou_classic',
+        inputs: {'question': '昨晚梦见一条大蛇游过水面, 还有掉牙'},
+      );
+      // 蛇 + 水 + 牙 三个都应该命中
+      expect(r.items.length, greaterThanOrEqualTo(3));
+    });
+
+    test('horoscope from birthdate derives correct sign', () {
+      final e = HoroscopeEngine();
+      final r = e.perform(variantKey: 'today', inputs: {'birthdate': '1990-06-15'});
+      expect(r.extras['signZh'], '双子座');
+    });
+
+    test('horoscope from sign name works', () {
+      final e = HoroscopeEngine();
+      final r = e.perform(variantKey: 'today', inputs: {'sign': '巨蟹座'});
+      expect(r.extras['signZh'], '巨蟹座');
     });
   });
 }

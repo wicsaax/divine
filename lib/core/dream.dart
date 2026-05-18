@@ -1,7 +1,14 @@
 // 梦境解析 (Oneiromancy / Dream Interpretation).
-// 全 AI 引擎. 用户描述梦境, LLM 从心理学 + 神秘学 + 文化语境多角度解读.
+//
+// 两种模式:
+//   1. 周公解梦 (传统查典) — 不需要 LLM, 内置 60+ 经典词条字典.
+//      用户描述梦境, app 扫关键词, 列出"周公"传统释义.
+//   2. AI 视角 (荣格 / 弗洛伊德 / 东方 / 灵性 / 反复 / 噩梦) — LLM 多角度解读.
+//
+// 两种可独立用. 字典模式即使没配 LLM 也有完整输出.
 
 import 'divination.dart';
+import 'dream_dict.dart';
 
 class _DreamMode {
   final String key;
@@ -68,7 +75,9 @@ class DreamEngine extends DivinationEngine {
 
   @override int? get accentColorHex => 0xFF3A3A6E; // 夜蓝紫
 
-  @override bool get hasStandaloneResult => false; // 必须 LLM 才能解读
+  /// 周公字典模式有结构化输出, 其他 AI 模式无 — 用 result.items 是否为空区分.
+  /// 这里返回 true 让主屏不拦截 (字典模式即使没 LLM 也能用).
+  @override bool get hasStandaloneResult => true;
 
   @override
   String get systemPrompt =>
@@ -84,19 +93,42 @@ class DreamEngine extends DivinationEngine {
       '7. 不使用 emoji, 用中文.';
 
   @override
-  List<DivinationVariant> get variants => _dreamModes
-      .map((m) => DivinationVariant(
-            key: m.key,
-            name: m.name,
-            description: m.description,
-          ))
-      .toList();
+  List<DivinationVariant> get variants => [
+        const DivinationVariant(
+          key: 'zhou_classic',
+          name: '周公解梦 (传统查典)',
+          description: '查内置周公解梦词典, 无需 AI 也能用. 想叠加 AI 解读再点"让 AI 解读".',
+        ),
+        ..._dreamModes.map((m) => DivinationVariant(
+              key: m.key,
+              name: m.name,
+              description: m.description,
+            )),
+      ];
 
   @override
   DivinationResult perform({
     required String variantKey,
     Map<String, String> inputs = const {},
   }) {
+    if (variantKey == 'zhou_classic') {
+      // 字典模式: 扫用户的"问题" (即梦境描述), 命中的关键词作为 items.
+      final dreamText = inputs['question'] ?? '';
+      final items = scanZhouGongDict(dreamText);
+      return DivinationResult(
+        engineId: id,
+        engineName: nameZh,
+        variantKey: variantKey,
+        variantName: '周公解梦 (传统查典)',
+        items: items,
+        extras: {
+          'mode': 'zhou',
+          'modeDescription': '查典',
+          'hits': items.length,
+          'dreamText': dreamText,
+        },
+      );
+    }
     final mode = _dreamModes.firstWhere((m) => m.key == variantKey);
     return DivinationResult(
       engineId: id,
@@ -104,14 +136,51 @@ class DreamEngine extends DivinationEngine {
       variantKey: variantKey,
       variantName: mode.name,
       items: const [],
-      extras: {'modeDescription': mode.description, 'style': mode.style},
+      extras: {'mode': 'ai', 'modeDescription': mode.description, 'style': mode.style},
     );
+  }
+
+  /// 字典模式: 给定梦境描述, 扫词典, 返回 DivinationItems.
+  /// 不在 perform 里, 是因为 perform 拿不到用户文本; 这个方法外部 (reading_screen)
+  /// 拿到用户的"问题"(实际是梦境)后调用.
+  static List<DivinationItem> scanZhouGongDict(String dreamText) {
+    final entries = matchEntries(dreamText);
+    return entries
+        .map((e) => DivinationItem(
+              position: e.symbol,
+              positionHint: '周公解梦传统释义',
+              name: e.symbol,
+              subtitle: '《周公解梦》',
+              keywords: [e.meaning],
+            ))
+        .toList();
   }
 
   @override
   String buildUserPrompt({required String question, required DivinationResult result}) {
     final ex = result.extras;
+    final mode = ex['mode'] as String;
     final buf = StringBuffer();
+    if (mode == 'zhou') {
+      // 字典模式也允许调 LLM 做"周公传统说法 + 现代心理"综合, 但默认不调.
+      buf.writeln('用户用了"周公解梦"传统字典模式, 在我们的字典里命中了以下条目.');
+      buf.writeln('请你结合这些传统释义 + 现代心理学视角综合解读, 不要简单复述字典.');
+      buf.writeln();
+      final hits = scanZhouGongDict(question);
+      if (hits.isEmpty) {
+        buf.writeln('(字典里没匹配到关键词, 请你自由发挥用周公解梦传统风格 + 现代视角解读)');
+      } else {
+        buf.writeln('字典命中:');
+        for (final it in hits) {
+          buf.writeln('  ${it.position}: ${it.keywords.first}');
+        }
+      }
+      buf.writeln();
+      buf.writeln('用户的梦:');
+      buf.writeln(question.trim().isEmpty ? '(用户没描述)' : question.trim());
+      return buf.toString();
+    }
+    // AI 视角模式
     buf.writeln('解梦视角: ${result.variantName} —— ${ex["modeDescription"]}');
     buf.writeln('风格要求: ${ex["style"]}');
     buf.writeln();
@@ -127,5 +196,5 @@ class DreamEngine extends DivinationEngine {
   }
 
   @override
-  String summarize(DivinationResult result) => '视角: ${result.variantName}';
+  String summarize(DivinationResult result) => '模式: ${result.variantName}';
 }

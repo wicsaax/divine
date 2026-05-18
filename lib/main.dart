@@ -7,6 +7,7 @@ import 'core/divination.dart';
 import 'core/dream.dart';
 import 'core/generic.dart';
 import 'core/geomancy.dart';
+import 'core/horoscope.dart';
 import 'core/iching.dart';
 import 'core/lenormand.dart';
 import 'core/maya.dart';
@@ -28,6 +29,7 @@ void _registerEngines() {
   DivinationRegistry.register(LenormandEngine());
   DivinationRegistry.register(IChingEngine());
   DivinationRegistry.register(PlumBlossomEngine());
+  DivinationRegistry.register(HoroscopeEngine());
   DivinationRegistry.register(BaziEngine());
   DivinationRegistry.register(ZiWeiEngine());
   DivinationRegistry.register(AstrologyEngine());

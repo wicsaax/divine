@@ -145,8 +145,11 @@ class _ReadingScreenState extends State<ReadingScreen> {
       return;
     }
     HapticFeedback.mediumImpact();
+    // 把用户的"问题"也作为 input 传给 engine, 引擎可选择性使用
+    // (例如周公解梦字典模式需要拿到梦境描述来扫关键词).
     final inputs = {
       for (final e in _inputCtls.entries) e.key: e.value.text.trim(),
+      'question': _questionCtl.text.trim(),
     };
 
     DivinationResult result;
@@ -168,8 +171,9 @@ class _ReadingScreenState extends State<ReadingScreen> {
       _saved = false;
     });
 
-    // 没有结构化输出的引擎 (通用 AI / 八字 / 占星), 抽完直接走 LLM, 否则等用户点解读.
-    if (!widget.engine.hasStandaloneResult) {
+    // 该次结果若没有结构化条目, 抽完直接走 LLM (前提是 LLM 已配置).
+    // 有结构化条目就停下来, 等用户点"解读"才调 LLM (允许零成本玩占卜).
+    if (result.items.isEmpty && widget.config.isReady) {
       await _interpret();
     }
   }
@@ -858,6 +862,36 @@ class _DivinationCard extends StatelessWidget {
           description: (ex['modeDescription'] as String?) ?? '',
         ),
       ];
+    }
+    if (id == 'dream' && result.variantKey == 'zhou_classic') {
+      if (result.items.isEmpty) {
+        return [
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Column(
+              children: [
+                Text('💤', style: TextStyle(fontSize: 48, color: accent)),
+                const SizedBox(height: 8),
+                Text(
+                  '内置周公解梦词典没匹配到关键词',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 4),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 28),
+                  child: Text(
+                    '梦境描述里没找到经典符号 (蛇/水/牙/飞 等). 你可以补充更具体的细节, 或者切到 AI 视角让模型自由发挥.',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ];
+      }
+      // 命中, 用默认 _buildItems 显示
+      return _buildItems(context, accent);
     }
     // 兜底
     return _buildItems(context, accent);
