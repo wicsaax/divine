@@ -109,8 +109,8 @@ UI 自动识别, 不用改任何其他文件。
 ## CI / 发布
 
 `.github/workflows/build.yml`:
-- push 任何分支 → 跑 test + analyze + 双平台 build, 产物上传为 artifacts (30 天)
-- push tag `v*` → 自动建一个 GitHub Release, 挂 APK + Windows zip
+- push 任何分支 → 跑 test + analyze + 四平台 build (Android / Web / Windows / macOS), 产物上传为 artifacts (30 天)
+- push tag `v*` → 自动建一个 GitHub Release, 挂 APK + Web zip + Windows zip + macOS zip
 
 ```bash
 git tag v0.x.y

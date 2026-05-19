@@ -134,9 +134,38 @@ jobs:
           path: divine-windows.zip
           retention-days: 30
 
-  # 单个 Release, 同时挂 APK + Windows zip 两个文件.
+  build-macos:
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.41.9'
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter config --enable-macos-desktop
+      - run: flutter build macos --release
+
+      # 用 ditto 打包 .app bundle, 保留符号链接/权限 (zip 不一定保留).
+      # 没签名, 用户首次打开需要右键 → 打开 (或 System Settings → Privacy & Security 放行).
+      - name: Package .app into zip
+        run: |
+          cd build/macos/Build/Products/Release
+          ditto -c -k --keepParent divine.app "$GITHUB_WORKSPACE/divine-macos.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: divine-macos-app
+          path: divine-macos.zip
+          retention-days: 30
+
+  # 单个 Release, 同时挂 APK + Windows zip + macOS zip + Web zip 四个文件.
   release:
-    needs: [build-android, build-windows, build-web]
+    needs: [build-android, build-windows, build-macos, build-web]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
@@ -149,6 +178,7 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/}
           mv artifacts/divine-android-apk/app-release.apk artifacts/divine-${VERSION}.apk
           mv artifacts/divine-windows-exe/divine-windows.zip artifacts/divine-${VERSION}-windows.zip
+          mv artifacts/divine-macos-app/divine-macos.zip artifacts/divine-${VERSION}-macos.zip
           mv artifacts/divine-web/divine-web.zip artifacts/divine-${VERSION}-web.zip
 
       - uses: softprops/action-gh-release@v2
@@ -162,8 +192,10 @@ jobs:
             |---|---|---|
             | Android | `divine-${{ github.ref_name }}.apk` | 传到手机, 允许未知来源, 点开安装 |
             | Windows | `divine-${{ github.ref_name }}-windows.zip` | 解压, 双击 `divine.exe` |
+            | macOS   | `divine-${{ github.ref_name }}-macos.zip`   | 解压, 拖 `divine.app` 到 Applications. 首次打开右键 → 打开 (未签名) |
             | Web    | `divine-${{ github.ref_name }}-web.zip` | 解压到任意静态 HTTP 服务器根目录 (Nginx/Caddy/Apache 都行) |
           files: |
             artifacts/divine-*.apk
             artifacts/divine-*-windows.zip
+            artifacts/divine-*-macos.zip
             artifacts/divine-*-web.zip
