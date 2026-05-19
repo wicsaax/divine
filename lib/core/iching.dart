@@ -166,43 +166,80 @@ class IChingEngine extends DivinationEngine {
     required String variantKey,
     Map<String, String> inputs = const {},
   }) {
-    // 自下而上, 6 爻
+    final tosses = [for (var i = 0; i < 6; i++) _tossOnce(_rng)];
+    return _buildResultFromTosses(variantKey, tosses);
+  }
+
+  @override
+  bool get supportsManualInput => true;
+
+  @override
+  List<ManualField> manualFields(String variantKey) {
+    const lineNameZh = ['初', '二', '三', '四', '五', '上'];
+    const lineOptions = [
+      ManualFieldOption(key: '7', label: '少阳 ⚊', subtitle: '本爻为阳, 不变'),
+      ManualFieldOption(key: '8', label: '少阴 ⚋', subtitle: '本爻为阴, 不变'),
+      ManualFieldOption(key: '9', label: '老阳 ⚊ → ⚋', subtitle: '阳变阴 (变爻)'),
+      ManualFieldOption(key: '6', label: '老阴 ⚋ → ⚊', subtitle: '阴变阳 (变爻)'),
+    ];
+    return [
+      for (var i = 0; i < 6; i++)
+        ManualField(
+          key: 'line_$i',
+          label: '${lineNameZh[i]}爻 (第 ${i + 1} 爻, 自下而上)',
+          kind: ManualFieldKind.picker,
+          options: lineOptions,
+          group: '${lineNameZh[i]}爻',
+        ),
+    ];
+  }
+
+  @override
+  DivinationResult performManual({
+    required String variantKey,
+    required Map<String, String> selections,
+  }) {
     final tosses = <int>[];
-    final lines = StringBuffer(); // 本卦 binary, 自下而上
-    final changedLines = StringBuffer(); // 变卦 binary
-    final changingPositions = <int>[]; // 1-6, 1 为最底
     for (var i = 0; i < 6; i++) {
-      final t = _tossOnce(_rng);
+      final raw = selections['line_$i'];
+      final t = int.tryParse(raw ?? '');
+      if (t == null || t < 6 || t > 9) {
+        throw ArgumentError('第 ${i + 1} 爻还没选');
+      }
       tosses.add(t);
+    }
+    return _buildResultFromTosses(variantKey, tosses);
+  }
+
+  DivinationResult _buildResultFromTosses(
+      String variantKey, List<int> tosses) {
+    assert(tosses.length == 6);
+    final lines = StringBuffer();         // 本卦 binary, 自下而上
+    final changedLines = StringBuffer();  // 变卦 binary
+    final changingPositions = <int>[];    // 1-6, 1 为最底
+    for (var i = 0; i < 6; i++) {
+      final t = tosses[i];
       switch (t) {
-        case 6: // 老阴 → 变为阳
-          lines.write('0');
-          changedLines.write('1');
+        case 6:
+          lines.write('0'); changedLines.write('1');
           changingPositions.add(i + 1);
           break;
-        case 7: // 少阳
-          lines.write('1');
-          changedLines.write('1');
-          break;
-        case 8: // 少阴
-          lines.write('0');
-          changedLines.write('0');
-          break;
-        case 9: // 老阳 → 变为阴
-          lines.write('1');
-          changedLines.write('0');
+        case 7: lines.write('1'); changedLines.write('1'); break;
+        case 8: lines.write('0'); changedLines.write('0'); break;
+        case 9:
+          lines.write('1'); changedLines.write('0');
           changingPositions.add(i + 1);
           break;
+        default:
+          throw ArgumentError('invalid toss sum: $t');
       }
     }
-
     final original = _findByBinary(lines.toString());
     final hasChange = changingPositions.isNotEmpty;
     final derived = hasChange ? _findByBinary(changedLines.toString()) : null;
 
-    final items = <DivinationItem>[];
-    // 6 个爻按位置由下到上, 每爻一个 item
     const lineNameZh = ['初', '二', '三', '四', '五', '上'];
+    final items = <DivinationItem>[];
     for (var i = 0; i < 6; i++) {
       final t = tosses[i];
       final isYang = lines.toString()[i] == '1';
@@ -221,7 +258,7 @@ class IChingEngine extends DivinationEngine {
         name: isYang ? '⚊ 阳' : '⚋ 阴',
         subtitle: typeLabel,
         orientation: isChanging ? '变' : '静',
-        keywords: [],
+        keywords: const [],
         extra: {'tossSum': t, 'yang': isYang, 'changing': isChanging},
       ));
     }

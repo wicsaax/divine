@@ -114,57 +114,174 @@ class BiblioEngine extends DivinationEngine {
     required String variantKey,
     Map<String, String> inputs = const {},
   }) {
-    String reference;
-    String variantName;
-    Map<String, dynamic> extras;
     switch (variantKey) {
       case 'bible':
         final b = _bibleBooks[_rng.nextInt(_bibleBooks.length)];
         final chap = _rng.nextInt(b.maxChapter) + 1;
         final verse = _rng.nextInt(b.maxVerse) + 1;
-        reference = '${b.name} $chap:$verse';
-        variantName = '圣经';
-        extras = {'book': b.name, 'chapter': chap, 'verse': verse};
-        break;
+        return _buildBible(b.name, chap, verse);
       case 'tao':
-        final chap = _rng.nextInt(_tao.max) + 1;
-        reference = '${_tao.name} 第 $chap 章';
-        variantName = _tao.name;
-        extras = {'book': _tao.name, 'chapter': chap};
-        break;
+        return _buildSingle(variantKey, _tao,
+            _rng.nextInt(_tao.max) + 1, suffix: '章');
       case 'lunyu':
-        final chap = _rng.nextInt(_lunyu.max) + 1;
-        reference = '${_lunyu.name} 第 $chap 篇';
-        variantName = _lunyu.name;
-        extras = {'book': _lunyu.name, 'chapter': chap};
-        break;
+        return _buildSingle(variantKey, _lunyu,
+            _rng.nextInt(_lunyu.max) + 1, suffix: '篇');
       case 'shijing':
-        final chap = _rng.nextInt(_shijing.max) + 1;
-        reference = '${_shijing.name} 第 $chap 篇';
-        variantName = _shijing.name;
-        extras = {'book': _shijing.name, 'chapter': chap};
-        break;
+        return _buildSingle(variantKey, _shijing,
+            _rng.nextInt(_shijing.max) + 1, suffix: '篇');
       case 'zhuangzi':
-        final chap = _rng.nextInt(_zhuangzi.max) + 1;
-        reference = '${_zhuangzi.name} 第 $chap 篇';
-        variantName = _zhuangzi.name;
-        extras = {'book': _zhuangzi.name, 'chapter': chap};
-        break;
+        return _buildSingle(variantKey, _zhuangzi,
+            _rng.nextInt(_zhuangzi.max) + 1, suffix: '篇');
       default:
         throw ArgumentError('unknown variant: $variantKey');
     }
+  }
 
+  @override
+  bool get supportsManualInput => true;
+
+  @override
+  List<ManualField> manualFields(String variantKey) {
+    switch (variantKey) {
+      case 'bible':
+        final bookOptions = _bibleBooks
+            .map((b) => ManualFieldOption(
+                  key: b.name,
+                  label: b.name,
+                  subtitle: '${b.maxChapter} 章',
+                ))
+            .toList();
+        return [
+          ManualField(
+            key: 'book',
+            label: '卷',
+            kind: ManualFieldKind.picker,
+            options: bookOptions,
+          ),
+          const ManualField(
+            key: 'chapter',
+            label: '章',
+            kind: ManualFieldKind.numberInput,
+            min: 1, max: 200,
+          ),
+          const ManualField(
+            key: 'verse',
+            label: '节',
+            kind: ManualFieldKind.numberInput,
+            min: 1, max: 200,
+          ),
+        ];
+      case 'tao':
+        return [
+          ManualField(
+            key: 'chapter', label: '章 (1-${_tao.max})',
+            kind: ManualFieldKind.numberInput, min: 1, max: _tao.max,
+          ),
+        ];
+      case 'lunyu':
+        return [
+          ManualField(
+            key: 'chapter', label: '篇 (1-${_lunyu.max})',
+            kind: ManualFieldKind.numberInput, min: 1, max: _lunyu.max,
+          ),
+        ];
+      case 'shijing':
+        return [
+          ManualField(
+            key: 'chapter', label: '篇 (1-${_shijing.max})',
+            kind: ManualFieldKind.numberInput, min: 1, max: _shijing.max,
+          ),
+        ];
+      case 'zhuangzi':
+        return [
+          ManualField(
+            key: 'chapter', label: '篇 (1-${_zhuangzi.max})',
+            kind: ManualFieldKind.numberInput, min: 1, max: _zhuangzi.max,
+          ),
+        ];
+      default:
+        return const [];
+    }
+  }
+
+  @override
+  DivinationResult performManual({
+    required String variantKey,
+    required Map<String, String> selections,
+  }) {
+    int? toInt(String? s) => s == null ? null : int.tryParse(s);
+    switch (variantKey) {
+      case 'bible':
+        final book = selections['book'];
+        final spec = book == null
+            ? null
+            : _bibleBooks.firstWhere(
+                (b) => b.name == book,
+                orElse: () => throw ArgumentError('未识别的卷: $book'),
+              );
+        if (spec == null) throw ArgumentError('请选卷');
+        final chap = toInt(selections['chapter']);
+        final verse = toInt(selections['verse']);
+        if (chap == null || chap < 1) throw ArgumentError('请填章');
+        if (verse == null || verse < 1) throw ArgumentError('请填节');
+        return _buildBible(spec.name, chap, verse);
+      case 'tao':
+      case 'lunyu':
+      case 'shijing':
+      case 'zhuangzi':
+        final chap = toInt(selections['chapter']);
+        final spec = {
+          'tao': _tao, 'lunyu': _lunyu,
+          'shijing': _shijing, 'zhuangzi': _zhuangzi,
+        }[variantKey]!;
+        if (chap == null || chap < 1 || chap > spec.max) {
+          throw ArgumentError('请填 1-${spec.max} 范围内的章/篇号');
+        }
+        final suffix = variantKey == 'tao' ? '章' : '篇';
+        return _buildSingle(variantKey, spec, chap, suffix: suffix);
+      default:
+        throw ArgumentError('unknown variant: $variantKey');
+    }
+  }
+
+  DivinationResult _buildBible(String book, int chap, int verse) {
+    final reference = '$book $chap:$verse';
+    final extras = {'book': book, 'chapter': chap, 'verse': verse};
+    return DivinationResult(
+      engineId: id,
+      engineName: nameZh,
+      variantKey: 'bible',
+      variantName: '圣经',
+      items: [
+        DivinationItem(
+          position: '所指段落',
+          positionHint: '指到的位置',
+          name: reference,
+          subtitle: '圣经',
+          keywords: const [],
+          extra: extras,
+        ),
+      ],
+      extras: {...extras, 'reference': reference},
+    );
+  }
+
+  DivinationResult _buildSingle(
+      String variantKey, _SingleBook spec, int chap,
+      {required String suffix}) {
+    final reference = '${spec.name} 第 $chap $suffix';
+    final extras = {'book': spec.name, 'chapter': chap};
     return DivinationResult(
       engineId: id,
       engineName: nameZh,
       variantKey: variantKey,
-      variantName: variantName,
+      variantName: spec.name,
       items: [
         DivinationItem(
           position: '所指段落',
-          positionHint: '随机翻到的位置',
+          positionHint: '指到的位置',
           name: reference,
-          subtitle: variantName,
+          subtitle: spec.name,
           keywords: const [],
           extra: extras,
         ),

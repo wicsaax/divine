@@ -235,34 +235,107 @@ class TarotEngine extends DivinationEngine {
     required String variantKey,
     Map<String, String> inputs = const {},
   }) {
-    final spread = _spreads.firstWhere((s) => s.key == variantKey,
-        orElse: () => throw ArgumentError('unknown spread: $variantKey'));
+    final spread = _spreadOrThrow(variantKey);
     final n = spread.positions.length;
     final deck = List<TarotCard>.from(tarotDeck)..shuffle(_rng);
     final drawn = deck.take(n).toList();
 
     final items = <DivinationItem>[];
     for (var i = 0; i < n; i++) {
-      final pos = spread.positions[i];
-      final card = drawn[i];
       final reversed = _rng.nextBool();
-      final orientation = reversed ? '逆位' : '正位';
-      final keywords = reversed ? card.reversed : card.upright;
-      items.add(DivinationItem(
-        position: pos[0],
-        positionHint: pos[1],
-        name: card.nameZh,
-        subtitle: card.nameEn,
-        orientation: orientation,
-        keywords: keywords,
-        extra: {
-          'suit': card.suit,
-          'number': card.number,
-          'element': card.element,
-          'reversed': reversed,
-        },
+      items.add(_buildItem(spread.positions[i], drawn[i], reversed));
+    }
+    return _buildResult(variantKey, spread, items);
+  }
+
+  @override
+  bool get supportsManualInput => true;
+
+  @override
+  List<ManualField> manualFields(String variantKey) {
+    final spread = _spreadOrThrow(variantKey);
+    final cardOptions = tarotDeck
+        .map((c) => ManualFieldOption(
+              key: c.nameZh,
+              label: c.nameZh,
+              subtitle: c.nameEn,
+            ))
+        .toList();
+    final orientOptions = const [
+      ManualFieldOption(key: 'upright', label: '正位'),
+      ManualFieldOption(key: 'reversed', label: '逆位'),
+    ];
+    final fields = <ManualField>[];
+    for (var i = 0; i < spread.positions.length; i++) {
+      final pos = spread.positions[i];
+      final group = '位置 ${i + 1}: ${pos[0]}';
+      fields.add(ManualField(
+        key: 'card_$i',
+        label: '牌',
+        hint: pos[1],
+        kind: ManualFieldKind.picker,
+        options: cardOptions,
+        group: group,
+      ));
+      fields.add(ManualField(
+        key: 'orient_$i',
+        label: '正/逆位',
+        kind: ManualFieldKind.toggle,
+        options: orientOptions,
+        defaultValue: 'upright',
+        group: group,
       ));
     }
+    return fields;
+  }
+
+  @override
+  DivinationResult performManual({
+    required String variantKey,
+    required Map<String, String> selections,
+  }) {
+    final spread = _spreadOrThrow(variantKey);
+    final byName = {for (final c in tarotDeck) c.nameZh: c};
+    final items = <DivinationItem>[];
+    for (var i = 0; i < spread.positions.length; i++) {
+      final cardName = selections['card_$i'];
+      if (cardName == null || cardName.isEmpty) {
+        throw ArgumentError('位置 ${i + 1} 还没选牌');
+      }
+      final card = byName[cardName];
+      if (card == null) {
+        throw ArgumentError('未识别的牌: $cardName');
+      }
+      final reversed = selections['orient_$i'] == 'reversed';
+      items.add(_buildItem(spread.positions[i], card, reversed));
+    }
+    return _buildResult(variantKey, spread, items);
+  }
+
+  _Spread _spreadOrThrow(String variantKey) => _spreads.firstWhere(
+        (s) => s.key == variantKey,
+        orElse: () => throw ArgumentError('unknown spread: $variantKey'),
+      );
+
+  DivinationItem _buildItem(List<String> pos, TarotCard card, bool reversed) {
+    return DivinationItem(
+      position: pos[0],
+      positionHint: pos[1],
+      name: card.nameZh,
+      subtitle: card.nameEn,
+      orientation: reversed ? '逆位' : '正位',
+      keywords: reversed ? card.reversed : card.upright,
+      extra: {
+        'suit': card.suit,
+        'number': card.number,
+        'element': card.element,
+        'reversed': reversed,
+      },
+    );
+  }
+
+  DivinationResult _buildResult(
+      String variantKey, _Spread spread, List<DivinationItem> items) {
     return DivinationResult(
       engineId: id,
       engineName: nameZh,

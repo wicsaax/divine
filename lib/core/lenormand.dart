@@ -118,23 +118,74 @@ class LenormandEngine extends DivinationEngine {
     required String variantKey,
     Map<String, String> inputs = const {},
   }) {
-    final spread = _lenSpreads.firstWhere((s) => s.key == variantKey);
+    final spread = _spreadOrThrow(variantKey);
     final n = spread.positions.length;
     final deck = List<_LenCard>.from(_lenormandDeck)..shuffle(_rng);
-    final drawn = deck.take(n).toList();
+    return _buildResult(variantKey, spread,
+        [for (var i = 0; i < n; i++) _buildItem(spread.positions[i], deck[i])]);
+  }
+
+  @override
+  bool get supportsManualInput => true;
+
+  @override
+  List<ManualField> manualFields(String variantKey) {
+    final spread = _spreadOrThrow(variantKey);
+    final cardOptions = _lenormandDeck
+        .map((c) => ManualFieldOption(
+              key: c.number.toString(),
+              label: '${c.number}. ${c.nameZh}',
+              subtitle: c.nameEn,
+            ))
+        .toList();
+    return [
+      for (var i = 0; i < spread.positions.length; i++)
+        ManualField(
+          key: 'card_$i',
+          label: '牌',
+          hint: spread.positions[i][1],
+          kind: ManualFieldKind.picker,
+          options: cardOptions,
+          group: '位置 ${i + 1}: ${spread.positions[i][0]}',
+        ),
+    ];
+  }
+
+  @override
+  DivinationResult performManual({
+    required String variantKey,
+    required Map<String, String> selections,
+  }) {
+    final spread = _spreadOrThrow(variantKey);
+    final byNumber = {for (final c in _lenormandDeck) c.number: c};
     final items = <DivinationItem>[];
-    for (var i = 0; i < n; i++) {
-      final pos = spread.positions[i];
-      final card = drawn[i];
-      items.add(DivinationItem(
-        position: pos[0],
-        positionHint: pos[1],
-        name: '${card.number}. ${card.nameZh}',
-        subtitle: card.nameEn,
-        keywords: card.keywords,
-        extra: {'number': card.number},
-      ));
+    for (var i = 0; i < spread.positions.length; i++) {
+      final raw = selections['card_$i'];
+      final num = int.tryParse(raw ?? '');
+      final card = num == null ? null : byNumber[num];
+      if (card == null) throw ArgumentError('位置 ${i + 1} 还没选牌');
+      items.add(_buildItem(spread.positions[i], card));
     }
+    return _buildResult(variantKey, spread, items);
+  }
+
+  _LenSpread _spreadOrThrow(String variantKey) =>
+      _lenSpreads.firstWhere((s) => s.key == variantKey,
+          orElse: () => throw ArgumentError('unknown spread: $variantKey'));
+
+  DivinationItem _buildItem(List<String> pos, _LenCard card) {
+    return DivinationItem(
+      position: pos[0],
+      positionHint: pos[1],
+      name: '${card.number}. ${card.nameZh}',
+      subtitle: card.nameEn,
+      keywords: card.keywords,
+      extra: {'number': card.number},
+    );
+  }
+
+  DivinationResult _buildResult(
+      String variantKey, _LenSpread spread, List<DivinationItem> items) {
     return DivinationResult(
       engineId: id,
       engineName: nameZh,

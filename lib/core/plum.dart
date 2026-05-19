@@ -75,21 +75,88 @@ class PlumBlossomEngine extends DivinationEngine {
     return _build(n1, n2, n3);
   }
 
-  DivinationResult _build(int n1, int n2, int n3) {
-    int upper = n1 % 8;
-    if (upper == 0) upper = 8;
-    int lower = (n1 + n2) % 8;
-    if (lower == 0) lower = 8;
-    int changingYao = (n1 + n2 + n3) % 6;
-    if (changingYao == 0) changingYao = 6;
+  @override
+  bool get supportsManualInput => true;
 
+  @override
+  List<ManualField> manualFields(String variantKey) {
+    final trigramOptions = [
+      for (final entry in _trigramName.entries)
+        ManualFieldOption(
+          key: entry.key.toString(),
+          label: entry.value,
+          subtitle: '数 ${entry.key}',
+        ),
+    ];
+    const yaoOptions = [
+      ManualFieldOption(key: '1', label: '初爻 (第 1, 最下)'),
+      ManualFieldOption(key: '2', label: '二爻 (第 2)'),
+      ManualFieldOption(key: '3', label: '三爻 (第 3)'),
+      ManualFieldOption(key: '4', label: '四爻 (第 4)'),
+      ManualFieldOption(key: '5', label: '五爻 (第 5)'),
+      ManualFieldOption(key: '6', label: '上爻 (第 6, 最上)'),
+    ];
+    return [
+      ManualField(
+        key: 'upper',
+        label: '上卦 (外卦/用)',
+        kind: ManualFieldKind.picker,
+        options: trigramOptions,
+        group: '上下卦',
+      ),
+      ManualField(
+        key: 'lower',
+        label: '下卦 (内卦/体)',
+        kind: ManualFieldKind.picker,
+        options: trigramOptions,
+        group: '上下卦',
+      ),
+      ManualField(
+        key: 'changing',
+        label: '动爻位置',
+        hint: '自下而上数, 1 = 最下, 6 = 最上',
+        kind: ManualFieldKind.picker,
+        options: yaoOptions,
+        group: '动爻',
+      ),
+    ];
+  }
+
+  @override
+  DivinationResult performManual({
+    required String variantKey,
+    required Map<String, String> selections,
+  }) {
+    final upper = int.tryParse(selections['upper'] ?? '');
+    final lower = int.tryParse(selections['lower'] ?? '');
+    final changing = int.tryParse(selections['changing'] ?? '');
+    if (upper == null || !_trigramByNumber.containsKey(upper)) {
+      throw ArgumentError('请选上卦');
+    }
+    if (lower == null || !_trigramByNumber.containsKey(lower)) {
+      throw ArgumentError('请选下卦');
+    }
+    if (changing == null || changing < 1 || changing > 6) {
+      throw ArgumentError('请选动爻位置');
+    }
+    return _buildFromParts(upper, lower, changing);
+  }
+
+  DivinationResult _build(int n1, int n2, int n3) {
+    int upper = n1 % 8; if (upper == 0) upper = 8;
+    int lower = (n1 + n2) % 8; if (lower == 0) lower = 8;
+    int changingYao = (n1 + n2 + n3) % 6; if (changingYao == 0) changingYao = 6;
+    return _buildFromParts(upper, lower, changingYao, numbers: [n1, n2, n3]);
+  }
+
+  DivinationResult _buildFromParts(int upper, int lower, int changingYao,
+      {List<int>? numbers}) {
     // hexagram binary 自下而上 = lower trigram + upper trigram
     final lowerBin = _trigramByNumber[lower]!;
     final upperBin = _trigramByNumber[upper]!;
     final origBin = lowerBin + upperBin;
     final origHex = hexagrams.firstWhere((h) => h.binary == origBin);
 
-    // 变卦: 翻转 changingYao 位 (1-indexed, 自下而上)
     final derived = StringBuffer();
     for (var i = 0; i < 6; i++) {
       if (i + 1 == changingYao) {
@@ -98,7 +165,8 @@ class PlumBlossomEngine extends DivinationEngine {
         derived.write(origBin[i]);
       }
     }
-    final derivedHex = hexagrams.firstWhere((h) => h.binary == derived.toString());
+    final derivedHex =
+        hexagrams.firstWhere((h) => h.binary == derived.toString());
 
     final items = <DivinationItem>[
       DivinationItem(
@@ -106,7 +174,7 @@ class PlumBlossomEngine extends DivinationEngine {
         positionHint: '外卦, 代表客观环境与他人',
         name: _trigramName[upper]!,
         subtitle: '数 $upper',
-        keywords: [],
+        keywords: const [],
         extra: {'binary': upperBin, 'number': upper},
       ),
       DivinationItem(
@@ -114,7 +182,7 @@ class PlumBlossomEngine extends DivinationEngine {
         positionHint: '内卦, 代表自身与本体',
         name: _trigramName[lower]!,
         subtitle: '数 $lower',
-        keywords: [],
+        keywords: const [],
         extra: {'binary': lowerBin, 'number': lower},
       ),
       DivinationItem(
@@ -122,7 +190,7 @@ class PlumBlossomEngine extends DivinationEngine {
         positionHint: '变化所在的关键位置',
         name: '第 $changingYao 爻',
         subtitle: '自下而上',
-        keywords: [],
+        keywords: const [],
         extra: {'position': changingYao},
       ),
     ];
@@ -134,7 +202,7 @@ class PlumBlossomEngine extends DivinationEngine {
       variantName: '梅花易数',
       items: items,
       extras: {
-        'numbers': [n1, n2, n3],
+        if (numbers != null) 'numbers': numbers,
         'upperTrigram': _trigramName[upper],
         'lowerTrigram': _trigramName[lower],
         'changingYao': changingYao,
@@ -160,7 +228,12 @@ class PlumBlossomEngine extends DivinationEngine {
     final buf = StringBuffer();
     buf.writeln('我的问题: ${question.trim().isEmpty ? "(请就当前能量给出判断)" : question.trim()}');
     buf.writeln();
-    buf.writeln('起卦方式: 梅花易数, 取三组数 ${ex["numbers"]}.');
+    final numbers = ex['numbers'];
+    if (numbers != null) {
+      buf.writeln('起卦方式: 梅花易数, 取三组数 $numbers.');
+    } else {
+      buf.writeln('起卦方式: 梅花易数 (由用户手动指定上下卦与动爻).');
+    }
     buf.writeln('上卦 (用): ${ex["upperTrigram"]}');
     buf.writeln('下卦 (体): ${ex["lowerTrigram"]}');
     buf.writeln('动爻: 第 ${ex["changingYao"]} 爻');

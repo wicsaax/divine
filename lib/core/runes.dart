@@ -117,34 +117,106 @@ class RunesEngine extends DivinationEngine {
     required String variantKey,
     Map<String, String> inputs = const {},
   }) {
-    final spread = _runeSpreads.firstWhere((s) => s.key == variantKey,
-        orElse: () => throw ArgumentError('unknown rune spread: $variantKey'));
+    final spread = _spreadOrThrow(variantKey);
     final n = spread.positions.length;
     final pool = List<Rune>.from(elderFuthark)..shuffle(_rng);
-    final drawn = pool.take(n).toList();
-
     final items = <DivinationItem>[];
     for (var i = 0; i < n; i++) {
-      final pos = spread.positions[i];
-      final rune = drawn[i];
+      final rune = pool[i];
       final reversed = rune.reversible && _rng.nextBool();
-      final orientation = !rune.reversible ? '不可逆' : (reversed ? '逆位' : '正位');
-      final keywords = reversed ? rune.reversed : rune.upright;
-      items.add(DivinationItem(
-        position: pos[0],
-        positionHint: pos[1],
-        name: '${rune.glyph}  ${rune.nameZh}',
-        subtitle: '${rune.nameOldNorse} · ${rune.meaning}',
-        orientation: orientation,
-        keywords: keywords,
-        extra: {
-          'glyph': rune.glyph,
-          'old_norse': rune.nameOldNorse,
-          'reversible': rune.reversible,
-          'reversed': reversed,
-        },
+      items.add(_buildItem(spread.positions[i], rune, reversed));
+    }
+    return _buildResult(variantKey, spread, items);
+  }
+
+  @override
+  bool get supportsManualInput => true;
+
+  @override
+  List<ManualField> manualFields(String variantKey) {
+    final spread = _spreadOrThrow(variantKey);
+    final runeOptions = elderFuthark
+        .map((r) => ManualFieldOption(
+              key: r.nameOldNorse,
+              label: '${r.glyph}  ${r.nameZh}',
+              subtitle: '${r.nameOldNorse} · ${r.meaning}'
+                  '${r.reversible ? "" : " (不可逆)"}',
+            ))
+        .toList();
+    const orientOptions = [
+      ManualFieldOption(key: 'upright', label: '正位'),
+      ManualFieldOption(key: 'reversed', label: '逆位'),
+    ];
+    final fields = <ManualField>[];
+    for (var i = 0; i < spread.positions.length; i++) {
+      final pos = spread.positions[i];
+      final group = '位置 ${i + 1}: ${pos[0]}';
+      fields.add(ManualField(
+        key: 'rune_$i',
+        label: '符文',
+        hint: pos[1],
+        kind: ManualFieldKind.picker,
+        options: runeOptions,
+        group: group,
+      ));
+      fields.add(ManualField(
+        key: 'orient_$i',
+        label: '正/逆位 (不可逆符文忽略此项)',
+        kind: ManualFieldKind.toggle,
+        options: orientOptions,
+        defaultValue: 'upright',
+        group: group,
       ));
     }
+    return fields;
+  }
+
+  @override
+  DivinationResult performManual({
+    required String variantKey,
+    required Map<String, String> selections,
+  }) {
+    final spread = _spreadOrThrow(variantKey);
+    final byName = {for (final r in elderFuthark) r.nameOldNorse: r};
+    final items = <DivinationItem>[];
+    for (var i = 0; i < spread.positions.length; i++) {
+      final name = selections['rune_$i'];
+      final rune = name == null ? null : byName[name];
+      if (rune == null) throw ArgumentError('位置 ${i + 1} 还没选符文');
+      final wantReversed = selections['orient_$i'] == 'reversed';
+      final reversed = rune.reversible && wantReversed;
+      items.add(_buildItem(spread.positions[i], rune, reversed));
+    }
+    return _buildResult(variantKey, spread, items);
+  }
+
+  _RuneSpread _spreadOrThrow(String variantKey) =>
+      _runeSpreads.firstWhere((s) => s.key == variantKey,
+          orElse: () =>
+              throw ArgumentError('unknown rune spread: $variantKey'));
+
+  DivinationItem _buildItem(List<String> pos, Rune rune, bool reversed) {
+    final orientation =
+        !rune.reversible ? '不可逆' : (reversed ? '逆位' : '正位');
+    final keywords = reversed ? rune.reversed : rune.upright;
+    return DivinationItem(
+      position: pos[0],
+      positionHint: pos[1],
+      name: '${rune.glyph}  ${rune.nameZh}',
+      subtitle: '${rune.nameOldNorse} · ${rune.meaning}',
+      orientation: orientation,
+      keywords: keywords,
+      extra: {
+        'glyph': rune.glyph,
+        'old_norse': rune.nameOldNorse,
+        'reversible': rune.reversible,
+        'reversed': reversed,
+      },
+    );
+  }
+
+  DivinationResult _buildResult(
+      String variantKey, _RuneSpread spread, List<DivinationItem> items) {
     return DivinationResult(
       engineId: id,
       engineName: nameZh,

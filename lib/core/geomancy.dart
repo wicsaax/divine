@@ -98,23 +98,62 @@ class GeomancyEngine extends DivinationEngine {
     required String variantKey,
     Map<String, String> inputs = const {},
   }) {
-    // 4 母图: 随机
     final mothers = <List<int>>[
-      [for (var j = 0; j < 4; j++) _rng.nextInt(2) + 1],
-      [for (var j = 0; j < 4; j++) _rng.nextInt(2) + 1],
-      [for (var j = 0; j < 4; j++) _rng.nextInt(2) + 1],
-      [for (var j = 0; j < 4; j++) _rng.nextInt(2) + 1],
+      for (var i = 0; i < 4; i++)
+        [for (var j = 0; j < 4; j++) _rng.nextInt(2) + 1],
     ];
+    return _buildFromMothers(variantKey, mothers);
+  }
 
-    // 4 女图: 母图的转置. daughter i 第 j 行 = mother j 第 i 行
+  @override
+  bool get supportsManualInput => true;
+
+  @override
+  List<ManualField> manualFields(String variantKey) {
+    final figureOptions = _figures
+        .map((f) => ManualFieldOption(
+              key: f.nameLatin,
+              label: f.nameZh,
+              subtitle: '${f.nameLatin} · ${f.element} · ${f.meaning}',
+            ))
+        .toList();
+    return [
+      for (var i = 0; i < 4; i++)
+        ManualField(
+          key: 'mother_$i',
+          label: '母图 ${['I', 'II', 'III', 'IV'][i]}',
+          hint: '占卜流程: 由四母图推出其余 12 figures',
+          kind: ManualFieldKind.picker,
+          options: figureOptions,
+          group: '四母图 (依次)',
+        ),
+    ];
+  }
+
+  @override
+  DivinationResult performManual({
+    required String variantKey,
+    required Map<String, String> selections,
+  }) {
+    final byLatin = {for (final f in _figures) f.nameLatin: f};
+    final mothers = <List<int>>[];
+    for (var i = 0; i < 4; i++) {
+      final name = selections['mother_$i'];
+      final fig = name == null ? null : byLatin[name];
+      if (fig == null) throw ArgumentError('母图 ${i + 1} 还没选');
+      mothers.add(List<int>.from(fig.rows));
+    }
+    return _buildFromMothers(variantKey, mothers);
+  }
+
+  DivinationResult _buildFromMothers(
+      String variantKey, List<List<int>> mothers) {
+    // 4 女图: 母图的转置
     final daughters = <List<int>>[
-      [for (var j = 0; j < 4; j++) mothers[j][0]],
-      [for (var j = 0; j < 4; j++) mothers[j][1]],
-      [for (var j = 0; j < 4; j++) mothers[j][2]],
-      [for (var j = 0; j < 4; j++) mothers[j][3]],
+      for (var i = 0; i < 4; i++) [for (var j = 0; j < 4; j++) mothers[j][i]],
     ];
 
-    // 4 侄图: 相邻 (m1+m2), (m3+m4), (d1+d2), (d3+d4) XOR
+    // 4 侄图: 相邻 XOR
     final nieces = <List<int>>[
       _xorRows(mothers[0], mothers[1]),
       _xorRows(mothers[2], mothers[3]),
@@ -122,11 +161,8 @@ class GeomancyEngine extends DivinationEngine {
       _xorRows(daughters[2], daughters[3]),
     ];
 
-    // 见证: 右 = nieces[0] XOR nieces[1], 左 = nieces[2] XOR nieces[3]
     final rightWitness = _xorRows(nieces[0], nieces[1]);
     final leftWitness = _xorRows(nieces[2], nieces[3]);
-
-    // 判官: 见证 XOR
     final judge = _xorRows(rightWitness, leftWitness);
 
     final all = <(_GeoFigure, String)>[

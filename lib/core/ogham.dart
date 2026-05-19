@@ -101,23 +101,74 @@ class OghamEngine extends DivinationEngine {
     required String variantKey,
     Map<String, String> inputs = const {},
   }) {
-    final spread = _oghamSpreads.firstWhere((s) => s.key == variantKey);
+    final spread = _spreadOrThrow(variantKey);
     final n = spread.positions.length;
     final pool = List<_Ogham>.from(_oghamStaves)..shuffle(_rng);
-    final drawn = pool.take(n).toList();
+    return _buildResult(variantKey, spread,
+        [for (var i = 0; i < n; i++) _buildItem(spread.positions[i], pool[i])]);
+  }
+
+  @override
+  bool get supportsManualInput => true;
+
+  @override
+  List<ManualField> manualFields(String variantKey) {
+    final spread = _spreadOrThrow(variantKey);
+    final staveOptions = _oghamStaves
+        .map((o) => ManualFieldOption(
+              key: o.nameOld,
+              label: '${o.glyph}  ${o.nameZh}',
+              subtitle: '${o.nameOld} · ${o.tree}',
+            ))
+        .toList();
+    return [
+      for (var i = 0; i < spread.positions.length; i++)
+        ManualField(
+          key: 'stave_$i',
+          label: '木枝',
+          hint: spread.positions[i][1],
+          kind: ManualFieldKind.picker,
+          options: staveOptions,
+          group: '位置 ${i + 1}: ${spread.positions[i][0]}',
+        ),
+    ];
+  }
+
+  @override
+  DivinationResult performManual({
+    required String variantKey,
+    required Map<String, String> selections,
+  }) {
+    final spread = _spreadOrThrow(variantKey);
+    final byName = {for (final o in _oghamStaves) o.nameOld: o};
     final items = <DivinationItem>[];
-    for (var i = 0; i < n; i++) {
-      final pos = spread.positions[i];
-      final o = drawn[i];
-      items.add(DivinationItem(
-        position: pos[0],
-        positionHint: pos[1],
-        name: '${o.glyph}  ${o.nameZh}',
-        subtitle: '${o.nameOld} · ${o.tree}',
-        keywords: o.meaning,
-        extra: {'glyph': o.glyph, 'tree': o.tree, 'oldName': o.nameOld},
-      ));
+    for (var i = 0; i < spread.positions.length; i++) {
+      final name = selections['stave_$i'];
+      final stave = name == null ? null : byName[name];
+      if (stave == null) throw ArgumentError('位置 ${i + 1} 还没选木枝');
+      items.add(_buildItem(spread.positions[i], stave));
     }
+    return _buildResult(variantKey, spread, items);
+  }
+
+  _OghamSpread _spreadOrThrow(String variantKey) =>
+      _oghamSpreads.firstWhere((s) => s.key == variantKey,
+          orElse: () =>
+              throw ArgumentError('unknown ogham spread: $variantKey'));
+
+  DivinationItem _buildItem(List<String> pos, _Ogham o) {
+    return DivinationItem(
+      position: pos[0],
+      positionHint: pos[1],
+      name: '${o.glyph}  ${o.nameZh}',
+      subtitle: '${o.nameOld} · ${o.tree}',
+      keywords: o.meaning,
+      extra: {'glyph': o.glyph, 'tree': o.tree, 'oldName': o.nameOld},
+    );
+  }
+
+  DivinationResult _buildResult(
+      String variantKey, _OghamSpread spread, List<DivinationItem> items) {
     return DivinationResult(
       engineId: id,
       engineName: nameZh,

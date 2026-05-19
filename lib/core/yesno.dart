@@ -96,7 +96,10 @@ class YesNoEngine extends DivinationEngine {
 
   DivinationResult _viaTarot() {
     final card = (List<TarotCard>.from(tarotDeck)..shuffle(_rng)).first;
-    final reversed = _rng.nextBool();
+    return _buildTarot(card, _rng.nextBool());
+  }
+
+  DivinationResult _buildTarot(TarotCard card, bool reversed) {
     String tendency;
     if (card.suit == 'major') {
       tendency = reversed ? '倾向否' : '倾向是';
@@ -129,8 +132,11 @@ class YesNoEngine extends DivinationEngine {
     for (var i = 0; i < 3; i++) {
       if (_rng.nextBool()) heads++;
     }
-    String tendency;
-    String detail;
+    return _buildCoins(heads);
+  }
+
+  DivinationResult _buildCoins(int heads) {
+    String tendency, detail;
     switch (heads) {
       case 3: tendency = '明确是'; detail = '三正面'; break;
       case 2: tendency = '倾向是'; detail = '二正一反'; break;
@@ -157,7 +163,10 @@ class YesNoEngine extends DivinationEngine {
   }
 
   DivinationResult _via8Ball() {
-    final phrase = _eightBall[_rng.nextInt(_eightBall.length)];
+    return _build8Ball(_eightBall[_rng.nextInt(_eightBall.length)]);
+  }
+
+  DivinationResult _build8Ball(String phrase) {
     final idx = _eightBall.indexOf(phrase);
     final tendency = idx < 10
         ? '倾向是'
@@ -178,6 +187,95 @@ class YesNoEngine extends DivinationEngine {
       ],
       extras: {'tendency': tendency, 'method': '八号球', 'phrase': phrase},
     );
+  }
+
+  @override
+  bool get supportsManualInput => true;
+
+  @override
+  List<ManualField> manualFields(String variantKey) {
+    switch (variantKey) {
+      case 'tarot':
+        return [
+          ManualField(
+            key: 'card', label: '塔罗牌',
+            kind: ManualFieldKind.picker,
+            options: tarotDeck
+                .map((c) => ManualFieldOption(
+                      key: c.nameZh, label: c.nameZh, subtitle: c.nameEn,
+                    ))
+                .toList(),
+          ),
+          const ManualField(
+            key: 'orient', label: '正/逆位',
+            kind: ManualFieldKind.toggle,
+            options: [
+              ManualFieldOption(key: 'upright', label: '正位'),
+              ManualFieldOption(key: 'reversed', label: '逆位'),
+            ],
+            defaultValue: 'upright',
+          ),
+        ];
+      case 'coins':
+        return const [
+          ManualField(
+            key: 'heads', label: '正面数',
+            hint: '你自己投的三枚硬币里, 几枚正面?',
+            kind: ManualFieldKind.picker,
+            options: [
+              ManualFieldOption(key: '0', label: '0 (三反面)'),
+              ManualFieldOption(key: '1', label: '1 正面'),
+              ManualFieldOption(key: '2', label: '2 正面'),
+              ManualFieldOption(key: '3', label: '3 (三正面)'),
+            ],
+          ),
+        ];
+      case '8ball':
+        return [
+          ManualField(
+            key: 'phrase', label: '八号球的回答',
+            kind: ManualFieldKind.picker,
+            options: _eightBall
+                .map((p) => ManualFieldOption(key: p, label: p))
+                .toList(),
+          ),
+        ];
+      default:
+        return const [];
+    }
+  }
+
+  @override
+  DivinationResult performManual({
+    required String variantKey,
+    required Map<String, String> selections,
+  }) {
+    switch (variantKey) {
+      case 'tarot':
+        final name = selections['card'];
+        final card = name == null
+            ? null
+            : tarotDeck.firstWhere(
+                (c) => c.nameZh == name,
+                orElse: () => throw ArgumentError('未识别的牌: $name'),
+              );
+        if (card == null) throw ArgumentError('请选一张牌');
+        return _buildTarot(card, selections['orient'] == 'reversed');
+      case 'coins':
+        final h = int.tryParse(selections['heads'] ?? '');
+        if (h == null || h < 0 || h > 3) {
+          throw ArgumentError('请选 0-3 的正面数');
+        }
+        return _buildCoins(h);
+      case '8ball':
+        final phrase = selections['phrase'];
+        if (phrase == null || !_eightBall.contains(phrase)) {
+          throw ArgumentError('请选一句回答');
+        }
+        return _build8Ball(phrase);
+      default:
+        throw ArgumentError('unknown variant: $variantKey');
+    }
   }
 
   @override

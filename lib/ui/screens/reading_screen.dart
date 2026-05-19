@@ -61,6 +61,10 @@ class _ReadingScreenState extends State<ReadingScreen> {
   String? _recordId;        // 同一次 reading 反复保存用同一个 id (避免历史里重复)
   List<String> _tags = [];
   bool _autoScroll = true;  // 用户在底部时为 true; 手动上滑后为 false 直到回到底部
+  /// 手抽模式 (用户自己抽牌/起卦) vs 随机模式. supportsManualInput=true 的引擎默认手抽.
+  late bool _manualMode = widget.engine.supportsManualInput;
+  /// 手抽模式下用户选/填的字段值, 由 manualFields(variantKey) 的 key 索引.
+  final Map<String, String> _manualSelections = {};
 
   Color get _accent => widget.engine.accentColorHex != null
       ? Color(widget.engine.accentColorHex!)
@@ -77,6 +81,19 @@ class _ReadingScreenState extends State<ReadingScreen> {
       _saved = true;
       _recordId = widget.replay!.id;
       _tags = List.of(widget.replay!.tags);
+    }
+    _resetManualDefaults();
+  }
+
+  /// 把当前变体下手抽字段的默认值填进 _manualSelections.
+  /// 在 initState / 切变体 / 切手抽模式时调用.
+  void _resetManualDefaults() {
+    _manualSelections.clear();
+    if (!widget.engine.supportsManualInput) return;
+    for (final f in widget.engine.manualFields(_variantKey)) {
+      if (f.defaultValue != null) {
+        _manualSelections[f.key] = f.defaultValue!;
+      }
     }
   }
 
@@ -175,6 +192,36 @@ class _ReadingScreenState extends State<ReadingScreen> {
     // 该次结果若没有结构化条目, 抽完直接走 LLM (前提是 LLM 已配置).
     // 有结构化条目就停下来, 等用户点"解读"才调 LLM (允许零成本玩占卜).
     if (result.items.isEmpty && widget.config.isReady) {
+      await _interpret();
+    }
+  }
+
+  /// 手抽模式: 用户已经在本地抽完牌/起完卦, 填了字段, 直接组装 result 再走 LLM 解读.
+  /// 与 _startReading 的区别: 用户的意图就是"让 AI 解读我抽到的", 所以 LLM 已配则自动调.
+  Future<void> _startManualReading() async {
+    if (_streaming) return;
+    HapticFeedback.mediumImpact();
+    DivinationResult result;
+    try {
+      result = await Future.value(
+        widget.engine.performManual(
+          variantKey: _variantKey,
+          selections: Map.of(_manualSelections),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _result = result;
+      _messages.clear();
+      _error = null;
+      _saved = false;
+    });
+    if (widget.config.isReady) {
       await _interpret();
     }
   }
@@ -559,7 +606,12 @@ class _ReadingScreenState extends State<ReadingScreen> {
         RadioGroup<String>(
           groupValue: _variantKey,
           onChanged: (val) {
-            if (val != null) setState(() => _variantKey = val);
+            if (val != null) {
+              setState(() {
+                _variantKey = val;
+                _resetManualDefaults();
+              });
+            }
           },
           child: Column(
             children: [
@@ -587,6 +639,54 @@ class _ReadingScreenState extends State<ReadingScreen> {
           ),
         ),
         const SizedBox(height: 16),
+      ],
+      // 手抽模式开关 + 字段. 只有 supportsManualInput 的引擎才显示.
+      if (engine.supportsManualInput) ...[
+        Text(S.t('reading.manual_section'),
+            style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          child: SegmentedButton<bool>(
+            segments: [
+              ButtonSegment(
+                value: true,
+                label: Text(S.t('reading.manual_self')),
+                icon: const Icon(Icons.back_hand_outlined),
+              ),
+              ButtonSegment(
+                value: false,
+                label: Text(S.t('reading.manual_random')),
+                icon: const Icon(Icons.casino_outlined),
+              ),
+            ],
+            selected: {_manualMode},
+            onSelectionChanged: (s) {
+              setState(() {
+                _manualMode = s.first;
+                if (_manualMode) _resetManualDefaults();
+              });
+            },
+            style: ButtonStyle(
+              backgroundColor: WidgetStateProperty.resolveWith(
+                (states) => states.contains(WidgetState.selected)
+                    ? _accent.withValues(alpha: 0.25)
+                    : null,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          _manualMode
+              ? S.t('reading.manual_hint_self')
+              : S.t('reading.manual_hint_random'),
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 14),
+        if (_manualMode) ..._buildManualFieldsSection(theme),
       ],
       if (inputs.isNotEmpty) ...[
         Row(
@@ -634,14 +734,251 @@ class _ReadingScreenState extends State<ReadingScreen> {
       SizedBox(
         width: double.infinity,
         child: FilledButton.icon(
-          onPressed: _streaming ? null : _startReading,
+          onPressed: _streaming
+              ? null
+              : (engine.supportsManualInput && _manualMode
+                  ? _startManualReading
+                  : _startReading),
           style: FilledButton.styleFrom(backgroundColor: _accent),
-          icon: const Icon(Icons.auto_awesome),
-          label: Text(S.t('btn.start')),
+          icon: Icon(engine.supportsManualInput && _manualMode
+              ? Icons.psychology_alt_outlined
+              : Icons.auto_awesome),
+          label: Text(engine.supportsManualInput && _manualMode
+              ? S.t('reading.manual_interpret')
+              : S.t('btn.start')),
         ),
       ),
       const SizedBox(height: 16),
     ];
+  }
+
+  /// 渲染手抽字段 (按 group 分组, picker/toggle/numberInput 三种).
+  List<Widget> _buildManualFieldsSection(ThemeData theme) {
+    final fields = widget.engine.manualFields(_variantKey);
+    if (fields.isEmpty) return const [];
+
+    // 按 group 分组保序
+    final groups = <String?, List<ManualField>>{};
+    final groupOrder = <String?>[];
+    for (final f in fields) {
+      if (!groups.containsKey(f.group)) {
+        groupOrder.add(f.group);
+        groups[f.group] = [];
+      }
+      groups[f.group]!.add(f);
+    }
+
+    final widgets = <Widget>[];
+    for (final g in groupOrder) {
+      if (g != null) {
+        widgets.add(Padding(
+          padding: const EdgeInsets.fromLTRB(2, 10, 2, 6),
+          child: Text(
+            g,
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: _accent,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ));
+      }
+      for (final f in groups[g]!) {
+        widgets.add(_buildManualField(theme, f));
+        widgets.add(const SizedBox(height: 8));
+      }
+    }
+    return widgets;
+  }
+
+  Widget _buildManualField(ThemeData theme, ManualField f) {
+    switch (f.kind) {
+      case ManualFieldKind.picker:
+        return _buildManualPicker(theme, f);
+      case ManualFieldKind.toggle:
+        return _buildManualToggle(theme, f);
+      case ManualFieldKind.numberInput:
+        return _buildManualNumber(theme, f);
+    }
+  }
+
+  Widget _buildManualPicker(ThemeData theme, ManualField f) {
+    final currentKey = _manualSelections[f.key];
+    final current = currentKey == null
+        ? null
+        : f.options.firstWhere(
+            (o) => o.key == currentKey,
+            orElse: () => const ManualFieldOption(key: '', label: ''),
+          );
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () async {
+        final picked = await _openPickerSheet(f);
+        if (picked != null && mounted) {
+          setState(() => _manualSelections[f.key] = picked);
+        }
+      },
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: f.label,
+          helperText: f.hint,
+          border: const OutlineInputBorder(),
+          suffixIcon: const Icon(Icons.arrow_drop_down),
+        ),
+        child: current == null || current.key.isEmpty
+            ? Text(S.t('reading.manual_pick_prompt'),
+                style: TextStyle(color: theme.hintColor))
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(current.label,
+                      style: const TextStyle(fontWeight: FontWeight.w500)),
+                  if (current.subtitle != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        current.subtitle!,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+      ),
+    );
+  }
+
+  Widget _buildManualToggle(ThemeData theme, ManualField f) {
+    final segs = f.options.take(2).toList();
+    final current = _manualSelections[f.key] ?? f.defaultValue ?? segs.first.key;
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(f.label, style: theme.textTheme.bodyMedium),
+              if (f.hint != null)
+                Text(f.hint!,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    )),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        SegmentedButton<String>(
+          segments: [
+            for (final o in segs)
+              ButtonSegment(value: o.key, label: Text(o.label)),
+          ],
+          selected: {current},
+          onSelectionChanged: (s) =>
+              setState(() => _manualSelections[f.key] = s.first),
+          showSelectedIcon: false,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildManualNumber(ThemeData theme, ManualField f) {
+    // 用 ValueKey 包含变体, 切变体后控件 remount, 老值不会残留.
+    return TextField(
+      key: ValueKey('manual-num/${widget.engine.id}/$_variantKey/${f.key}'),
+      keyboardType: TextInputType.number,
+      decoration: InputDecoration(
+        labelText: f.label,
+        helperText: f.hint,
+        border: const OutlineInputBorder(),
+      ),
+      onChanged: (v) => _manualSelections[f.key] = v.trim(),
+    );
+  }
+
+  Future<String?> _openPickerSheet(ManualField f) async {
+    return showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetCtx) {
+        var filter = '';
+        return StatefulBuilder(builder: (ctx, setSheetState) {
+          final q = filter.trim().toLowerCase();
+          final filtered = q.isEmpty
+              ? f.options
+              : f.options.where((o) {
+                  return o.label.toLowerCase().contains(q) ||
+                      (o.subtitle?.toLowerCase().contains(q) ?? false);
+                }).toList();
+          return SafeArea(
+            child: Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom,
+              ),
+              child: Container(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(ctx).size.height * 0.7,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              f.label,
+                              style: Theme.of(ctx)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.of(ctx).pop(),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (f.options.length >= 8)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                        child: TextField(
+                          decoration: InputDecoration(
+                            prefixIcon: const Icon(Icons.search),
+                            hintText: S.t('reading.manual_search'),
+                            isDense: true,
+                          ),
+                          onChanged: (v) =>
+                              setSheetState(() => filter = v),
+                        ),
+                      ),
+                    Flexible(
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: filtered.length,
+                        itemBuilder: (_, i) {
+                          final o = filtered[i];
+                          return ListTile(
+                            title: Text(o.label),
+                            subtitle: o.subtitle == null
+                                ? null
+                                : Text(o.subtitle!),
+                            onTap: () => Navigator.of(ctx).pop(o.key),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        });
+      },
+    );
   }
 
   Widget _buildFollowupBar(ThemeData theme) {

@@ -76,6 +76,50 @@ class InputField {
   });
 }
 
+/// 手动输入模式的字段类型.
+/// - picker: 从 [options] 选一个 key (下拉/列表).
+/// - toggle: 二选一 (用 [options] 的前两个).
+/// - numberInput: 数字输入, 受 [min]/[max] 约束.
+enum ManualFieldKind { picker, toggle, numberInput }
+
+/// 一个 picker/toggle 的可选项.
+class ManualFieldOption {
+  final String key;       // 提交值
+  final String label;     // 主标题
+  final String? subtitle; // 副标题 (英文名/拼音/含义)
+  const ManualFieldOption({
+    required this.key,
+    required this.label,
+    this.subtitle,
+  });
+}
+
+/// "手抽模式" 的一个字段. 由引擎按当前变体动态产生.
+/// 例: 塔罗 3 张牌阵 → 6 个字段 (3 个 card_i picker + 3 个 orient_i toggle).
+class ManualField {
+  final String key;
+  final String label;
+  final String? hint;
+  final ManualFieldKind kind;
+  final List<ManualFieldOption> options;
+  final int? min;
+  final int? max;
+  final String? defaultValue;
+  /// 可选的分组标题, 同一组的字段在 UI 上挨着. 例: 塔罗的位置 1 / 位置 2 / ...
+  final String? group;
+  const ManualField({
+    required this.key,
+    required this.label,
+    required this.kind,
+    this.hint,
+    this.options = const [],
+    this.min,
+    this.max,
+    this.defaultValue,
+    this.group,
+  });
+}
+
 /// 一次完整占卜的结构化结果. 不含 LLM 解读.
 class DivinationResult {
   final String engineId;
@@ -157,6 +201,25 @@ abstract class DivinationEngine {
     required String variantKey,
     Map<String, String> inputs = const {},
   });
+
+  /// 该引擎是否支持"手抽模式": 用户自己抽牌/起卦后, 把结果填到 app 里, 仅用 LLM 解读.
+  /// 默认 false. 已经基于用户输入计算的引擎 (八字/紫微/占星/数字命理/解梦/通用 AI 占卜 等)
+  /// 本来就是手动输入, 不需要这套额外机制.
+  bool get supportsManualInput => false;
+
+  /// 当前变体下, 手抽模式需要用户填的字段. 默认空.
+  /// 注意要依变体动态返回 (例如塔罗不同牌阵字段数不同).
+  List<ManualField> manualFields(String variantKey) => const [];
+
+  /// 把用户手填的 [selections] 组装成 DivinationResult.
+  /// [selections] 的 key 对应 manualFields 的 key, value 是用户选的 option.key 或输入的字符串.
+  /// 默认抛, 子类支持手抽模式时必须 override.
+  FutureOr<DivinationResult> performManual({
+    required String variantKey,
+    required Map<String, String> selections,
+  }) {
+    throw UnimplementedError('performManual not implemented for $id');
+  }
 
   /// 把结果渲染成给 LLM 的 user message.
   String buildUserPrompt({
