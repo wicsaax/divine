@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/services.dart';
 
 import '../../core/divination.dart';
@@ -305,15 +306,22 @@ class _ReadingScreenState extends State<ReadingScreen> {
   }
 
   /// 用户手动滚动时调; 据当前位置更新 _autoScroll.
+  ///
+  /// 只听两种通知:
+  /// - UserScrollNotification: 仅用户手势触发, 程序 animateTo 不会发. 用户一动手指就关掉自动跟随.
+  /// - ScrollEndNotification: 滚动停止时发. 如果停在底部 (含 fling 惯性结束), 恢复自动跟随.
+  /// 这样程序性的 _scrollToBottom 动画不会反过来抖 _autoScroll, 跟用户手势抢方向.
   bool _onScroll(ScrollNotification n) {
-    if (n is! ScrollUpdateNotification && n is! UserScrollNotification) {
+    if (n is UserScrollNotification && n.direction != ScrollDirection.idle) {
+      if (_autoScroll) setState(() => _autoScroll = false);
       return false;
     }
-    final pos = n.metrics;
-    // 离底部 < 80px 视作"在底部"
-    final atBottom = pos.maxScrollExtent - pos.pixels < 80;
-    if (atBottom != _autoScroll) {
-      setState(() => _autoScroll = atBottom);
+    if (n is ScrollEndNotification) {
+      final pos = n.metrics;
+      final atBottom = pos.maxScrollExtent - pos.pixels < 48;
+      if (atBottom != _autoScroll) {
+        setState(() => _autoScroll = atBottom);
+      }
     }
     return false;
   }

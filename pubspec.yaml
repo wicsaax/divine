@@ -1,7 +1,7 @@
 name: divine
 description: A multi-tradition divination companion with AI-powered interpretation.
 publish_to: 'none'
-version: 0.8.0+11
+version: 0.8.1+12
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
