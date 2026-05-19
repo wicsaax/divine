@@ -111,7 +111,7 @@ class PlumBlossomEngine extends DivinationEngine {
         options: trigramOptions,
         group: '上下卦',
       ),
-      ManualField(
+      const ManualField(
         key: 'changing',
         label: '动爻位置',
         hint: '自下而上数, 1 = 最下, 6 = 最上',

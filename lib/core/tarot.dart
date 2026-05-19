@@ -261,7 +261,7 @@ class TarotEngine extends DivinationEngine {
               subtitle: c.nameEn,
             ))
         .toList();
-    final orientOptions = const [
+    const orientOptions = [
       ManualFieldOption(key: 'upright', label: '正位'),
       ManualFieldOption(key: 'reversed', label: '逆位'),
     ];
